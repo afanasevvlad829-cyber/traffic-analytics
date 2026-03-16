@@ -1,0 +1,401 @@
+<!-- APP_BASE_URL managed via .env -->
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Direct AI Control Center</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root{--bg:#0b0d10;--panel:#151922;--muted:#8d99ae;--text:#f5f7fb;--line:#232836;--accent:#3b82f6;--good:#16a34a;--warn:#d97706;--bad:#dc2626}
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text)}
+    .wrap{max-width:1400px;margin:0 auto;padding:20px}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+    .title{font-size:30px;font-weight:700}.sub{color:var(--muted);margin-top:6px;font-size:14px}
+    .btn{border:1px solid var(--line);background:var(--panel);color:var(--text);padding:10px 14px;border-radius:16px;cursor:pointer}
+    .btn.primary{background:var(--accent);border-color:var(--accent)} .btn.warn{background:#3b2a12;border-color:#5c3d10}
+    .grid{display:grid;gap:16px}.stats{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-bottom:20px}
+    .card,.task{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:18px}.task{margin-bottom:16px}
+    .stat-num{font-size:32px;font-weight:700;margin-top:8px}.muted{color:var(--muted)} .small{font-size:13px}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}.tab{padding:10px 14px;border-radius:16px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--text)}
+    .tab.active{background:var(--accent);border-color:var(--accent)} .hidden{display:none}
+    .row{display:flex;gap:16px;flex-wrap:wrap}.metric{min-width:150px;padding:12px;border-radius:16px;background:#101521;border:1px solid var(--line)}
+    .variant{border:1px dashed #334155;border-radius:18px;padding:14px;background:#101521;margin-top:10px}
+    .code{white-space:pre-wrap;word-break:break-word;background:#0f1420;border:1px solid var(--line);padding:12px;border-radius:16px;font-size:13px}
+    .badge{display:inline-block;padding:6px 10px;border-radius:999px;font-size:12px;border:1px solid var(--line);background:#1d2331}
+    .pill{display:inline-block;margin:4px 6px 0 0;padding:6px 10px;border-radius:999px;background:#1b2230;font-size:12px}
+    .divider{height:1px;background:var(--line);margin:14px 0}.section-title{font-size:18px;font-weight:700;margin-bottom:10px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <div class="title">Direct AI Control Center</div>
+      <div class="sub">V1: данные → решение → очередь → статус → контроль результата</div>
+    </div>
+    <div class="row">
+      <button class="btn" onclick="reloadAll()">Обновить</button>
+      <button class="btn primary" id="diag-btn">Диагностика</button>
+    </div>
+  </div>
+
+  <div id="stats" class="grid stats"></div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="creatives" onclick="switchTab('creatives')">Креативы</button>
+    <button class="tab" data-tab="structure" onclick="switchTab('structure')">Структура</button>
+    <button class="tab" data-tab="negatives" onclick="switchTab('negatives')">Минус-слова</button>
+    <button class="tab" data-tab="forecast" onclick="switchTab('forecast')">Forecast review</button>
+    <button class="tab" data-tab="actions" onclick="switchTab('actions')">Журнал</button>
+  </div>
+
+  <div id="tab-creatives"></div>
+  <div id="tab-structure" class="hidden"></div>
+  <div id="tab-negatives" class="hidden"></div>
+  <div id="tab-forecast" class="hidden"></div>
+  <div id="tab-actions" class="hidden">
+  
+
+</div>
+</div>
+
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+function esc(x){ if(x===null||x===undefined) return ""; return String(x).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }
+async function api(path, options={}) {
+  const res = await fetch(path, {headers: {"Content-Type":"application/json"}, ...options});
+  if(!res.ok){ throw new Error(await res.text()); }
+  return await res.json();
+}
+function switchTab(name){
+  document.querySelectorAll(".tab").forEach(el => el.classList.toggle("active", el.dataset.tab===name));
+  ["creatives","structure","negatives","forecast","actions"].forEach(n => document.getElementById("tab-"+n).classList.toggle("hidden", n!==name));
+}
+function statCard(title, value, desc){ return `<div class="card"><div class="muted small">${esc(title)}</div><div class="stat-num">${esc(value)}</div><div class="muted small" style="margin-top:8px">${esc(desc)}</div></div>`; }
+
+function renderStats(s){
+  document.getElementById("stats").innerHTML = [
+    statCard("Открытые креативы", s.open_creatives ?? 0, "Ждут решения"),
+    statCard("Структурные задачи", s.structure_items ?? 0, "Рекомендации по split"),
+    statCard("Forecast review", s.forecast_items ?? 0, "Сравнение прогноза с фактом"),
+    statCard("Одобрено", s.approved_actions ?? 0, "Уже пошло в очередь"),
+    statCard("Pending actions", s.pending_actions ?? 0, "Ждут executor"),
+  ].join("");
+}
+
+function renderCreatives(rows){
+  const el = document.getElementById("tab-creatives");
+  if(!rows.length){ el.innerHTML = '<div class="card">Нет creative tasks.</div>'; return; }
+  el.innerHTML = rows.map(r => `
+    <div class="task">
+      <div class="row" style="justify-content:space-between;align-items:flex-start">
+        <div>
+          <div style="font-size:20px;font-weight:700">${esc(r.campaign_name)}</div>
+          <div class="muted small" style="margin-top:6px">Ad ID: ${esc(r.ad_id)} · Group: ${esc(r.ad_group_id)} · Decision: ${esc(r.decision)}</div>
+        </div>
+        <div class="badge">${esc(r.prediction_confidence || "LOW")}</div>
+      </div>
+      <div class="divider"></div>
+      <div class="row">
+        <div class="metric"><div class="muted small">Score</div><div style="font-size:24px;font-weight:700">${esc(r.score)}</div></div>
+        <div class="metric"><div class="muted small">CTR</div><div style="font-size:24px;font-weight:700">${esc(r.ctr_pct)}%</div></div>
+        <div class="metric"><div class="muted small">CPC</div><div style="font-size:24px;font-weight:700">${esc(r.cpc)} ₽</div></div>
+        <div class="metric"><div class="muted small">Pred CTR</div><div style="font-size:24px;font-weight:700">${esc(r.predicted_ctr_pct || "")}%</div></div>
+        <div class="metric"><div class="muted small">Pred CPC</div><div style="font-size:24px;font-weight:700">${esc(r.predicted_cpc || "")} ₽</div></div>
+      </div>
+      <div class="divider"></div>
+      <div class="card" style="padding:14px">
+        <div class="section-title">Текущее объявление</div>
+        <div class="small"><b>TITLE1:</b> ${esc(r.original_title)}</div>
+        <div class="small" style="margin-top:6px"><b>TITLE2:</b> ${esc(r.original_title_2)}</div>
+        <div class="small" style="margin-top:6px"><b>BODY:</b> ${esc(r.original_body_text)}</div>
+        <div class="divider"></div>
+        <div class="section-title">Ключевые слова / условия показа</div>
+        <div>${String(r.sample_queries || "").split("|").map(x => x.trim()).filter(Boolean).slice(0,20).map(q => `<span class="pill">${esc(q)}</span>`).join("")}</div>
+        <div class="divider"></div>
+        <div class="small muted">${esc(r.prediction_reason || "")}</div>
+      </div>
+
+      <div class="variant">
+        <div class="small"><b>Вариант A</b></div>
+        <div class="small" style="margin-top:6px"><b>TITLE1:</b> ${esc(r.ai_title_1)}</div>
+        <div class="small"><b>TITLE2:</b> ${esc(r.ai_title_2)}</div>
+        <div class="small"><b>BODY:</b> ${esc(r.ai_body_1)}</div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn primary" onclick="queueAB(${r.ad_id}, 'A')">Approve A/B</button>
+          <button class="btn" onclick="ignoreCreative(${r.ad_id})">Ignore</button>
+          <button class="btn warn" onclick="snoozeCreative(${r.ad_id})">Snooze 1d</button>
+        </div>
+      </div>
+
+      <div class="variant">
+        <div class="small"><b>Вариант B</b></div>
+        <div class="small" style="margin-top:6px"><b>TITLE1:</b> ${esc(r.ai_title_1_b)}</div>
+        <div class="small"><b>TITLE2:</b> ${esc(r.ai_title_2_b)}</div>
+        <div class="small"><b>BODY:</b> ${esc(r.ai_body_2)}</div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn primary" onclick="queueAB(${r.ad_id}, 'B')">Approve A/B</button>
+          <button class="btn" onclick="ignoreCreative(${r.ad_id})">Ignore</button>
+          <button class="btn warn" onclick="snoozeCreative(${r.ad_id})">Snooze 1d</button>
+        </div>
+      </div>
+
+      <div class="variant">
+        <div class="small"><b>Вариант C</b></div>
+        <div class="small" style="margin-top:6px"><b>TITLE1:</b> ${esc(r.ai_title_1_c)}</div>
+        <div class="small"><b>TITLE2:</b> ${esc(r.ai_title_2_c)}</div>
+        <div class="small"><b>BODY:</b> ${esc(r.ai_body_3)}</div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn primary" onclick="queueAB(${r.ad_id}, 'C')">Approve A/B</button>
+          <button class="btn" onclick="ignoreCreative(${r.ad_id})">Ignore</button>
+          <button class="btn warn" onclick="snoozeCreative(${r.ad_id})">Snooze 1d</button>
+        </div>
+      </div>
+    </div>
+  `).join("");
+}
+
+function renderStructure(rows){
+  const el = document.getElementById("tab-structure");
+  if(!rows.length){ el.innerHTML = '<div class="card">Нет structure items.</div>'; return; }
+  el.innerHTML = rows.map(r => `
+    <div class="task">
+      <div style="font-size:20px;font-weight:700">${esc(r.campaign_name)}</div>
+      <div class="muted small" style="margin-top:6px">Group: ${esc(r.ad_group_id)} · Last action: ${esc(r.action_type || "-")} · Status: ${esc(r.action_status || "-")}</div>
+      <div class="divider"></div>
+      <div class="code">${esc(r.recommendation || "")}</div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" onclick="structureAction('${encodeURIComponent(r.campaign_name)}', ${r.ad_group_id}, 'APPLY_SPLIT')">Apply split</button>
+        <button class="btn" onclick="structureAction('${encodeURIComponent(r.campaign_name)}', ${r.ad_group_id}, 'IGNORE')">Ignore</button>
+        <button class="btn warn" onclick="structureAction('${encodeURIComponent(r.campaign_name)}', ${r.ad_group_id}, 'SNOOZE')">Snooze</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function renderNegatives(data){
+  const el = document.getElementById("tab-negatives");
+  const safe = data.safe || []; const blocked = data.blocked || []; const actions = data.actions || [];
+  el.innerHTML = `
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:16px">
+      <div class="card">
+        <div class="section-title">SAFE NEGATIVES</div>
+        ${safe.map(r => `
+          <div style="margin-bottom:16px">
+            <div style="font-weight:700">${esc(r.campaign_name)}</div>
+            <div class="muted small" style="margin:6px 0 10px">Кол-во: ${esc(r.keywords_count)}</div>
+            <div class="code">${esc(r.words || "")}</div>
+            <div class="row" style="margin-top:10px">
+              <button class="btn primary" onclick="applySafeNegatives('${encodeURIComponent(r.campaign_name)}')">Apply safe negatives</button>
+            </div>
+          </div>
+        `).join("") || '<div class="muted">Нет данных</div>'}
+      </div>
+      <div class="card">
+        <div class="section-title">BLOCKED NEGATIVES</div>
+        ${blocked.map(r => `
+          <div style="margin-bottom:16px">
+            <div style="font-weight:700">${esc(r.campaign_name)}</div>
+            <div class="muted small" style="margin:6px 0 10px">Кол-во: ${esc(r.keywords_count)}</div>
+            <div class="code">${esc(r.words || "")}</div>
+          </div>
+        `).join("") || '<div class="muted">Нет данных</div>'}
+      </div>
+    </div>
+    <div class="task" style="margin-top:16px">
+      <div class="section-title">Negative actions log</div>
+      ${actions.map(a => `
+        <div class="card" style="padding:12px;margin-top:10px">
+          <div class="small"><b>${esc(a.campaign_name)}</b> · ${esc(a.action_type)} · ${esc(a.status)}</div>
+          <div class="small muted" style="margin-top:6px">${esc(a.created_at)}</div>
+          <div class="code" style="margin-top:8px">${esc(a.words_text || "")}</div>
+        </div>
+      `).join("") || '<div class="muted">Пока пусто</div>'}
+    </div>
+  `;
+}
+
+function renderForecast(rows){
+  const el = document.getElementById("tab-forecast");
+  if(!rows.length){ el.innerHTML = '<div class="card">Нет forecast review.</div>'; return; }
+  el.innerHTML = rows.map(r => `
+    <div class="task">
+      <div style="font-size:20px;font-weight:700">${esc(r.campaign_name)}</div>
+      <div class="muted small" style="margin-top:6px">Ad ID: ${esc(r.ad_id)} · Group: ${esc(r.ad_group_id)}</div>
+      <div class="divider"></div>
+      <div class="row">
+        <div class="metric"><div class="muted small">Pred CTR</div><div style="font-size:24px;font-weight:700">${esc(r.predicted_ctr_pct)}</div></div>
+        <div class="metric"><div class="muted small">Actual CTR</div><div style="font-size:24px;font-weight:700">${esc(r.actual_ctr_pct)}</div></div>
+        <div class="metric"><div class="muted small">Pred CPC</div><div style="font-size:24px;font-weight:700">${esc(r.predicted_cpc)}</div></div>
+        <div class="metric"><div class="muted small">Actual CPC</div><div style="font-size:24px;font-weight:700">${esc(r.actual_cpc)}</div></div>
+      </div>
+      <div class="divider"></div>
+      <div class="small"><b>Status:</b> ${esc(r.forecast_status)}</div>
+      <div class="small muted" style="margin-top:8px">${esc(r.comment || "")}</div>
+    </div>
+  `).join("");
+}
+
+function renderActionLog(rows){
+  const el = document.getElementById("tab-actions");
+  if(!rows.length){ el.innerHTML = '<div class="card">Журнал пуст.</div>'; return; }
+  el.innerHTML = rows.map(r => `
+    <div class="task">
+      <div style="font-size:18px;font-weight:700">${esc(r.entity_type)} · ${esc(r.action)}</div>
+      <div class="muted small" style="margin-top:6px">${esc(r.created_at)} · ${esc(r.entity_key)} · ${esc(r.status)}</div>
+      <div class="code" style="margin-top:10px">${esc(r.details || "")}</div>
+    </div>
+  `).join("");
+}
+
+async function queueAB(adId, variant){
+  const data = await api('/api/queue-ab-test', {method:'POST', body: JSON.stringify({ad_id: adId, variant})});
+  alert(data.message); reloadAll();
+}
+async function ignoreCreative(adId){
+  const data = await api('/api/ignore-creative', {method:'POST', body: JSON.stringify({ad_id: adId})});
+  alert(data.message); reloadAll();
+}
+async function snoozeCreative(adId){
+  const data = await api('/api/snooze', {method:'POST', body: JSON.stringify({entity_type:'creative', entity_key:String(adId), days:1, reason:'webapp manual snooze'})});
+  alert(data.message); reloadAll();
+}
+async function applySafeNegatives(campaignNameEsc){
+  const campaign_name = decodeURIComponent(campaignNameEsc);
+  const data = await api('/api/apply-safe-negatives', {method:'POST', body: JSON.stringify({campaign_name})});
+  alert(data.message); reloadAll();
+}
+async function structureAction(campaignNameEsc, adGroupId, action){
+  const campaign_name = decodeURIComponent(campaignNameEsc);
+  const data = await api('/api/structure-action', {method:'POST', body: JSON.stringify({campaign_name, ad_group_id: adGroupId, action, reason:'webapp'})});
+  alert(data.message); reloadAll();
+}
+async function reloadAll(){
+  const data = await api('/api/full-dashboard');
+  renderStats(data.summary || {});
+  renderCreatives(data.creative_tasks || []);
+  renderStructure(data.structure || []);
+  renderNegatives(data.negatives || {});
+  renderForecast(data.forecast_review || []);
+  renderActionLog(data.action_log || []);
+}
+
+async function runDiagnostic(){
+  const modal = document.getElementById("diag-modal");
+  const output = document.getElementById("diag-output");
+  const meta = document.getElementById("diag-meta");
+  modal.classList.remove("hidden");
+  output.value = "Собираю диагностику...";
+  meta.textContent = "";
+  try{
+    const data = await api("/api/diagnostic");
+    output.value = data.content || "";
+    meta.textContent = `ok=${data.ok} returncode=${data.returncode} report=${data.report_path}`;
+  }catch(e){
+    output.value = "Ошибка запуска диагностики: " + e.message;
+    meta.textContent = "diagnostic failed";
+  }
+}
+
+function closeDiagnostic(){
+  document.getElementById("diag-modal").classList.add("hidden");
+}
+
+function copyDiagnostic(){
+  const output = document.getElementById("diag-output");
+  navigator.clipboard.writeText(output.value);
+  alert("Диагностический отчёт скопирован");
+}
+
+reloadAll().catch(e => { document.body.innerHTML = '<div class="wrap"><div class="card">Ошибка загрузки WebApp: ' + esc(e.message) + '</div></div>'; });
+
+window.runDiagnostic = async function(){
+  console.log("runDiagnostic called");
+  const modal = document.getElementById("diag-modal");
+  const output = document.getElementById("diag-output");
+  const meta = document.getElementById("diag-meta");
+
+  if (!modal || !output || !meta) {
+    alert("Диагностические элементы интерфейса не найдены");
+    console.error("diag elements missing", {modal, output, meta});
+    return;
+  }
+
+  modal.classList.remove("hidden");
+  output.value = "Собираю диагностику...";
+  meta.textContent = "running...";
+
+  try{
+    const res = await fetch("/api/diagnostic", {
+      method: "GET",
+      headers: {"Content-Type": "application/json"}
+    });
+
+    const text = await res.text();
+    let data = {};
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      output.value = "Некорректный ответ API:\n\n" + text;
+      meta.textContent = "invalid json";
+      console.error("diagnostic invalid json", text);
+      return;
+    }
+
+    output.value = data.content || "";
+    meta.textContent = `ok=${data.ok} returncode=${data.returncode} report=${data.report_path}`;
+    console.log("diagnostic loaded", data);
+  }catch(e){
+    output.value = "Ошибка запуска диагностики: " + e.message;
+    meta.textContent = "diagnostic failed";
+    console.error("diagnostic error", e);
+    alert("Ошибка запуска диагностики: " + e.message);
+  }
+};
+
+window.closeDiagnostic = function(){
+  const modal = document.getElementById("diag-modal");
+  if (modal) modal.classList.add("hidden");
+};
+
+window.copyDiagnostic = function(){
+  const output = document.getElementById("diag-output");
+  if (!output) {
+    alert("Поле отчёта не найдено");
+    return;
+  }
+  navigator.clipboard.writeText(output.value || "");
+  alert("Диагностический отчёт скопирован");
+};
+
+document.addEventListener("DOMContentLoaded", function(){
+  const btn = document.getElementById("diag-btn");
+  if (btn) {
+    btn.onclick = window.runDiagnostic;
+    console.log("diag button rebound");
+  } else {
+    console.warn("diag button not found on DOMContentLoaded");
+  }
+});
+
+</script>
+
+<div id="diag-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);padding:24px;z-index:99999;overflow:auto">
+  <div class="card" style="max-width:1100px;margin:0 auto">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div class="section-title">Диагностический отчёт</div>
+      <button class="btn" id="diag-close-btn">Закрыть</button>
+    </div>
+    <div id="diag-meta" class="muted small" style="margin-bottom:12px"></div>
+    <textarea id="diag-output" readonly style="width:100%;min-height:520px;background:#0f1420;color:#f5f7fb;border:1px solid #232836;border-radius:16px;padding:14px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px"></textarea>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" id="diag-copy-btn">Скопировать отчёт</button>
+    </div>
+  </div>
+</div>
+<script src="/static/app.js"></script>
+
+</body>
+</html>

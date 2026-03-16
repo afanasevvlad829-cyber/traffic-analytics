@@ -1,0 +1,94 @@
+=== COMPETITOR PIPELINE START Sun Mar 15 04:51:49 UTC 2026 ===
+
+=== STEP 1: FETCH YANDEX SERP ===
+Traceback (most recent call last):
+  File "/home/kv145/traffic-analytics/src/fetch_yandex_serp_v2.py", line 134, in <module>
+    main()
+  File "/home/kv145/traffic-analytics/src/fetch_yandex_serp_v2.py", line 97, in main
+    r.raise_for_status()
+  File "/home/kv145/traffic-analytics/.venv/lib/python3.12/site-packages/requests/models.py", line 1026, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 401 Client Error: Unauthorized for url: https://searchapi.api.cloud.yandex.net/v2/web/search
+
+=== STEP 2: BUILD ALERTS ===
+yandex competitor alerts built
+
+=== STEP 3: SAMPLE ALERTS FROM DB ===
+ report_date | keyword | position | domain | relevance_score | verdict 
+-------------+---------+----------+--------+-----------------+---------
+(0 rows)
+
+
+=== STEP 4: SEND TELEGRAM REPORT ===
+Traceback (most recent call last):
+  File "/home/kv145/traffic-analytics/src/send_competitor_alerts_v2.py", line 63, in <module>
+    resp.raise_for_status()
+  File "/home/kv145/traffic-analytics/.venv/lib/python3.12/site-packages/requests/models.py", line 1026, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 404 Client Error: Not Found for url: https://api.telegram.org/botNone/sendMessage
+
+=== STEP 5: RAW SERP SAMPLE ===
+ report_date | keyword | position | domain | title 
+-------------+---------+----------+--------+-------
+(0 rows)
+
+
+=== COMPETITOR PIPELINE END Sun Mar 15 04:51:49 UTC 2026 ===
+YANDEX_SEARCH_API_KEY present: True
+YANDEX_SEARCH_FOLDER_ID: b1ghsspmh31vd4ujnrl2
+YANDEX_SEARCH_REGION: 213
+keyword: детский лагерь в подмосковье status: 401
+response preview: {
+ "code": 16,
+ "message": "Unknown api key 'PAST****HERE (A8CA2F2D)'",
+ "details": [
+  {
+   "@type": "type.googleapis.com/google.rpc.RequestInfo",
+   "requestId": "4c7da1a4-9dd8-4aa0-a994-89c74a8a670b"
+  }
+ ]
+}
+
+Traceback (most recent call last):
+  File "/home/kv145/traffic-analytics/src/fetch_yandex_serp_v2.py", line 124, in <module>
+    main()
+  File "/home/kv145/traffic-analytics/src/fetch_yandex_serp_v2.py", line 84, in main
+    r.raise_for_status()
+  File "/home/kv145/traffic-analytics/.venv/lib/python3.12/site-packages/requests/models.py", line 1026, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 401 Client Error: Unauthorized for url: https://searchapi.api.cloud.yandex.net/v2/web/search
+yandex competitor alerts built
+TG_TOKEN present: True
+TG_CHAT present: True
+telegram status: 200
+telegram response: {"ok":true,"result":{"message_id":16,"from":{"id":8619240142,"is_bot":true,"first_name":"\u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a\u0430 \u0442\u0440\u0430\u0444\u0438\u043a\u0430","username":"aida_traf_bot"},"chat":{"id":244314247,"first_name":"Vladimir","last_name":"Afanasiev","username":"afonix","type":"private"},"date":1773555062,"text":"\ud83d\udd75\ufe0f YANDEX COMPETITOR WATCH\n\n\u0421\u0435\u0433\u043e\u0434\u043d\u044f \u0441\u0438\u043b\u044c\u043d\u044b\u0445 \u043a\u043e\u043
+yandex competitor report sent
+YANDEX_SEARCH_API_KEY present: True
+YANDEX_SEARCH_FOLDER_ID: b1ghsspmh31vd4ujnrl2
+YANDEX_SEARCH_REGION: 213
+keyword: детский лагерь в подмосковье status: 401
+response preview: {
+ "code": 16,
+ "message": "Unknown api key 'PAST****HERE (A8CA2F2D)'",
+ "details": [
+  {
+   "@type": "type.googleapis.com/google.rpc.RequestInfo",
+   "requestId": "31b8816f-e53b-47f4-9665-366c6de20153"
+  }
+ ]
+}
+
+Traceback (most recent call last):
+  File "/home/kv145/traffic-analytics/src/fetch_yandex_serp_v2.py", line 124, in <module>
+    main()
+  File "/home/kv145/traffic-analytics/src/fetch_yandex_serp_v2.py", line 84, in main
+    r.raise_for_status()
+  File "/home/kv145/traffic-analytics/.venv/lib/python3.12/site-packages/requests/models.py", line 1026, in raise_for_status
+    raise HTTPError(http_error_msg, response=self)
+requests.exceptions.HTTPError: 401 Client Error: Unauthorized for url: https://searchapi.api.cloud.yandex.net/v2/web/search
+yandex competitor alerts built
+TG_TOKEN present: True
+TG_CHAT present: True
+telegram status: 200
+telegram response: {"ok":true,"result":{"message_id":34,"from":{"id":8619240142,"is_bot":true,"first_name":"\u0410\u043d\u0430\u043b\u0438\u0442\u0438\u043a\u0430 \u0442\u0440\u0430\u0444\u0438\u043a\u0430","username":"aida_traf_bot"},"chat":{"id":244314247,"first_name":"Vladimir","last_name":"Afanasiev","username":"afonix","type":"private"},"date":1773641461,"text":"\ud83d\udd75\ufe0f YANDEX COMPETITOR WATCH\n\n\u0421\u0435\u0433\u043e\u0434\u043d\u044f \u0441\u0438\u043b\u044c\u043d\u044b\u0445 \u043a\u043e\u043
+yandex competitor report sent

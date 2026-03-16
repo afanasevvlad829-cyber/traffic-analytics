@@ -1,0 +1,6 @@
+HTTP/2 308 
+location: https://datalens.ru/api/v1/workbooks/opvynqy6k00k8/entries
+set-cookie: _yasc=WjcEA4/4P2sBQNBFSV7wcXyVe1u2bJmuM2rnHgaZYUMcskOJYpyrYrBxTdwTA30=; domain=.datalens.yandex.cloud; path=/; expires=Tue, 11 Mar 2036 18:29:34 GMT; secure
+date: Sat, 14 Mar 2026 18:29:33 GMT
+server: ycalb
+

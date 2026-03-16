@@ -1,0 +1,13 @@
+[Unit]
+Description=Direct AI WebApp
+After=network.target
+
+[Service]
+User=kv145
+WorkingDirectory=/home/kv145/traffic-analytics
+ExecStart=/home/kv145/traffic-analytics/.venv/bin/python -m uvicorn webapp.app:app --host 127.0.0.1 --port 8088
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+Report sent
+AI creatives generated: 12
+Direct v3 report sent
+DIRECT_API_TOKEN present: True
+DIRECT_CLIENT_LOGIN present: True
+DIRECT_CLIENT_LOGIN: kv145
+campaign_ids: 1
+status: 200 campaign batch: [706892642]
+ads returned: 59
+ads_meta loaded: 59
+.venv/bin/python: can't open file '/home/kv145/traffic-analytics/src/run_structure_audit.py': [Errno 2] No such file or directory
+AI creatives generated: 12
+Direct v3 report sent
+  File "/home/kv145/traffic-analytics/src/send_structure_report.py", line 8
+    with open(ENV_PATH) as f:
+    ^
+IndentationError: expected an indented block after function definition on line 7

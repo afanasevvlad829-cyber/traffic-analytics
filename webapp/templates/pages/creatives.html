@@ -1,0 +1,62 @@
+<html>
+<head>
+<title>Creative AI</title>
+<script src="/static/context_copy.js"></script>
+</head>
+<body>
+
+<h1>AI Creative Candidates</h1>
+
+<div id="list"></div>
+
+<script>
+
+fetch("/api/creative-tasks")
+.then(r=>r.json())
+.then(rows=>{
+
+let html=""
+
+rows.forEach(r=>{
+
+let code="CR-"+r.ad_id
+
+html+=`
+<div style="border:1px solid #ccc;padding:20px;margin:20px">
+
+<h3>${r.campaign_name}</h3>
+
+<div>
+Ad ID: ${r.ad_id}
+</div>
+
+<div style="margin-top:10px">
+
+<b>Current</b><br>
+${r.original_title}<br>
+${r.original_title_2}<br>
+${r.original_body_text}
+
+</div>
+
+<div style="margin-top:10px">
+
+<button onclick="copyAIContext('${code}')">
+Скопировать для AI
+</button>
+
+</div>
+
+</div>
+`
+
+})
+
+document.getElementById("list").innerHTML=html
+
+})
+
+</script>
+
+</body>
+</html>

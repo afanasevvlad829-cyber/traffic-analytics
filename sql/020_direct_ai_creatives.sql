@@ -1,0 +1,23 @@
+create table if not exists mart_direct_ai_creatives (
+    created_at timestamp default now(),
+    date date,
+    campaign_name text,
+    search_query text,
+    decision text,
+    impressions int,
+    clicks int,
+    cost numeric,
+    ctr numeric,
+    avg_cpc numeric,
+    ai_title_1 text,
+    ai_title_2 text,
+    ai_text text,
+    ai_title_1_b text,
+    ai_title_2_b text,
+    ai_text_b text,
+    ai_title_1_c text,
+    ai_title_2_c text,
+    ai_text_c text,
+    minus_words text,
+    raw_llm_response text
+);

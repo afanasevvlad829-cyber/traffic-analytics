@@ -1,0 +1,15 @@
+YANDEX_SEARCH_API_KEY present: True
+YANDEX_SEARCH_FOLDER_ID: b1ghsspmh31vd4ujnrl2
+YANDEX_SEARCH_REGION: 213
+keyword: детский лагерь в подмосковье status: 401
+response preview: {
+ "code": 16,
+ "message": "Unknown api key 'PAST****HERE (A8CA2F2D)'",
+ "details": [
+  {
+   "@type": "type.googleapis.com/google.rpc.RequestInfo",
+   "requestId": "8cf5d157-a193-4bf7-9d8a-5fa642ca7933"
+  }
+ ]
+}
+
