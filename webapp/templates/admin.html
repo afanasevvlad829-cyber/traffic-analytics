@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Центр управления AI-директологом</title>
+<link rel="stylesheet" href="/static/admin.css"/>
+</head>
+
+<body>
+
+<div class="shell">
+
+<aside class="sidebar">
+
+<div class="brand">AI-директолог</div>
+<div class="brand-sub">Центр управления рекламой</div>
+
+<div class="nav">
+
+<button class="active" data-section="overview" onclick="setSection('overview')">
+Обзор
+</button>
+
+<button data-section="creatives" onclick="setSection('creatives')">
+Объявления
+</button>
+
+<button data-section="structure" onclick="setSection('structure')">
+Структура
+</button>
+
+<button data-section="negatives" onclick="setSection('negatives')">
+Минус-слова
+</button>
+
+<button data-section="forecast" onclick="setSection('forecast')">
+Прогноз
+</button>
+
+<button data-section="actions" onclick="setSection('actions')">
+Журнал действий
+</button>
+
+<button data-section="diagnostics" onclick="setSection('diagnostics')">
+Диагностика
+</button>
+
+</div>
+
+<div class="sidebar-meta">
+
+<div><b>Система:</b> Direct AI</div>
+<div><b>Режим:</b> AI-директолог</div>
+<div><b>Backend:</b> FastAPI</div>
+<div><b>База:</b> PostgreSQL</div>
+
+</div>
+
+</aside>
+
+<main class="main">
+
+<div class="topbar">
+
+<div>
+<div class="title">
+Центр управления рекламой
+</div>
+
+<div class="subtitle">
+AI анализирует кампании, предлагает улучшения и управляет рекламой
+</div>
+</div>
+
+<div class="actions">
+
+<a class="btn ghost" href="/" target="_blank">
+Компактная панель
+</a>
+
+<button class="btn" onclick="reloadAll()">
+Обновить данные
+</button>
+
+<button class="btn primary" onclick="runDiagnostic()">
+Проверка системы
+</button>
+
+</div>
+
+</div>
+
+<div class="search-row">
+
+<input id="global-search" class="input"
+placeholder="Поиск по кампаниям, объявлениям, группам, тексту"/>
+
+<select id="campaign-filter" class="select">
+<option value="all">Все кампании</option>
+</select>
+
+<select id="status-filter" class="select">
+
+<option value="all">Все статусы</option>
+<option value="PENDING">Ожидает</option>
+<option value="DONE">Выполнено</option>
+<option value="APPROVED">Одобрено</option>
+<option value="EXECUTED">Исполнено</option>
+<option value="IGNORED">Игнорировано</option>
+<option value="SNOOZED">Отложено</option>
+<option value="FAILED">Ошибка</option>
+
+</select>
+
+</div>
+
+<div id="summary-cards" class="cards"></div>
+
+<section id="section-overview" class="section active"></section>
+<section id="section-creatives" class="section"></section>
+<section id="section-structure" class="section"></section>
+<section id="section-negatives" class="section"></section>
+<section id="section-forecast" class="section"></section>
+<section id="section-actions" class="section"></section>
+<section id="section-diagnostics" class="section"></section>
+
+</main>
+
+</div>
+
+<script src="/static/admin.js"></script>
+
+</body>
+</html>

@@ -95,16 +95,6 @@ def api_config():
 def health():
     return {"ok": True}
 
-
-@app.get("/admin", response_class=HTMLResponse)
-def admin_page():
-    html = (TEMPLATES_DIR / "admin.html").read_text(encoding="utf-8")
-    response = HTMLResponse(html)
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
-
 @app.get("/webapp", response_class=HTMLResponse)
 def webapp():
     html = (TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
