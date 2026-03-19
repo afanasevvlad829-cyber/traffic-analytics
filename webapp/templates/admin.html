@@ -38,6 +38,10 @@
 Прогноз
 </button>
 
+<button data-section="scoring" onclick="setSection('scoring')">
+Scoring
+</button>
+
 <button data-section="actions" onclick="setSection('actions')">
 Журнал действий
 </button>
@@ -122,11 +126,22 @@ placeholder="Поиск по кампаниям, объявлениям, гру�
 <section id="section-structure" class="section"></section>
 <section id="section-negatives" class="section"></section>
 <section id="section-forecast" class="section"></section>
+<section id="section-scoring" class="section"></section>
 <section id="section-actions" class="section"></section>
 <section id="section-diagnostics" class="section"></section>
 
 </main>
 
+</div>
+
+<div id="scoring-drawer" class="drawer">
+  <div class="drawer-body">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <div class="panel-title" style="margin-bottom:0">Карточка посетителя</div>
+      <button class="btn" onclick="closeScoringDetails()">Закрыть</button>
+    </div>
+    <div id="scoring-drawer-content"></div>
+  </div>
 </div>
 
 <script src="/static/admin.js"></script>

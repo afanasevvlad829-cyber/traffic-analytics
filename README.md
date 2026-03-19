@@ -74,6 +74,16 @@ traffic-analytics
 ## Diagnostic System
 Система диагностики сервера и сервисов.
 
+## Scoring v1
+Rule-based visitor/lead scoring по данным Метрики:
+
+- расчет вероятности покупки (`raw_score`, `normalized_score`)
+- сегментация `hot / warm / cold`
+- explainable `explanation_json`
+- API + раздел `Scoring` в `/admin`
+
+Документация: `docs/scoring.md`
+
 ---
 
 # Web интерфейс
@@ -109,6 +119,7 @@ mart_ai_creative_candidates
 mart_group_builder
 mart_forecast_review
 mart_campaign_analytics
+mart_visitor_scoring
 
 ---
 

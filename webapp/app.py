@@ -9,6 +9,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from src.scoring.service import (
+    get_scoring_summary,
+    get_scoring_visitor,
+    get_scoring_visitors,
+    rebuild_scoring_v1,
+)
+from src.scoring.report import send_scoring_report
 
 BASE_DIR = Path("/home/kv145/traffic-analytics")
 ENV_PATH = BASE_DIR / ".env"
@@ -104,6 +111,13 @@ def admin_page():
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+
+@app.get("/admin/scoring", response_class=HTMLResponse)
+@app.get("/admin/scoring/", response_class=HTMLResponse)
+def admin_scoring_page():
+    return admin_page()
+
 
 @app.get("/webapp", response_class=HTMLResponse)
 def webapp():
@@ -306,6 +320,66 @@ def api_action_log():
         order by created_at desc
         limit 200
     """)
+
+
+@app.get("/api/scoring/summary")
+def api_scoring_summary():
+    return get_scoring_summary()
+
+
+@app.get("/api/scoring/visitors")
+def api_scoring_visitors(limit: int = 100, segment: str | None = None, source: str | None = None):
+    segment_norm = segment.strip().lower() if segment else None
+    if segment_norm and segment_norm not in ("hot", "warm", "cold"):
+        raise HTTPException(status_code=400, detail="segment must be one of: hot, warm, cold")
+    return get_scoring_visitors(limit=limit, segment=segment_norm, source=source)
+
+
+class ScoringRebuildIn(BaseModel):
+    limit: int | None = None
+    use_fallback: bool = True
+    send_report: bool = False
+
+
+@app.post("/api/scoring/rebuild")
+def api_scoring_rebuild(payload: ScoringRebuildIn | None = None):
+    body = payload or ScoringRebuildIn()
+    if body.limit is not None and body.limit <= 0:
+        raise HTTPException(status_code=400, detail="limit must be positive")
+
+    result = rebuild_scoring_v1(limit=body.limit, use_fallback=body.use_fallback)
+    if not result.get("ok", True):
+        raise HTTPException(status_code=500, detail=result.get("error", "scoring rebuild failed"))
+
+    if body.send_report:
+        try:
+            summary = get_scoring_summary()
+            top_hot = get_scoring_visitors(limit=5, segment="hot").get("items", [])
+            report_status = send_scoring_report(summary=summary, top_visitors=top_hot)
+            result["report"] = report_status
+            if not report_status.get("ok", False):
+                print(f"[scoring-report] {report_status.get('error')}")
+        except Exception as exc:  # noqa: BLE001
+            result["report"] = {"ok": False, "sent": False, "error": str(exc)}
+            print(f"[scoring-report] {exc}")
+
+    return result
+
+
+@app.get("/api/scoring/visitor/{visitor_id}")
+def api_scoring_visitor(visitor_id: str):
+    row = get_scoring_visitor(visitor_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="visitor not found")
+    row["source_mode"] = row.get("source_mode") or row.get("data_source") or ""
+    row["score_metadata"] = {
+        "raw_score": row.get("raw_score"),
+        "normalized_score": row.get("normalized_score"),
+        "segment": row.get("segment"),
+        "scoring_version": row.get("scoring_version"),
+        "scored_at": row.get("scored_at"),
+    }
+    return row
 
 
 @app.get("/api/diagnostic")
