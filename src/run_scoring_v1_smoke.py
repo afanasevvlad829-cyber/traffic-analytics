@@ -119,7 +119,11 @@ def run_smoke(base_url: str, seed_sql_path: Path, skip_seed: bool) -> dict:
     if not skip_seed:
         inserted_visitors = apply_seed_sql(seed_sql_path)
 
-    rebuild = api_post(base_url, "/api/scoring/rebuild", {"use_fallback": False})
+    rebuild = api_post(
+        base_url,
+        "/api/scoring/rebuild",
+        {"use_fallback": False, "sync_features": False},
+    )
     if not rebuild.get("ok", False):
         raise SmokeFailure(f"scoring rebuild failed: {rebuild}")
 

@@ -23,6 +23,8 @@
 - `src/scoring/rules.py`
 - `src/scoring/scorer.py`
 - `src/scoring/service.py`
+- `src/scoring/feature_sync.py`
+- `src/run_build_scoring_features.py`
 - `src/run_scoring_v1.py`
 
 ### Поток данных
@@ -32,6 +34,7 @@
 3. Service сохраняет результат в `mart_visitor_scoring`.
 4. Web API отдаёт summary, список и карточку visitor.
 5. WebApp `/admin` показывает раздел `Scoring`.
+6. Rebuild flow сначала синхронизирует visitor-level признаки из Метрики.
 
 ## SQL объекты
 
@@ -52,6 +55,24 @@
 
 1. `stg_metrica_visitors_features` (основной production путь)
 2. fallback из `stg_metrica_source_daily` (если visitor staging пока пуст)
+
+### Откуда берутся реальные visitor данные
+
+Реальные признаки загружаются шагом `build_scoring_features` из Yandex Metrica Stat API:
+
+- dimensions: `clientID`, `lastTrafficSource`, `lastAdvEngine`, `lastUTMSource`, `lastUTMMedium`, `deviceCategory`, `lastUTMCampaign`
+- metrics: `visits`, `pageDepth`, `avgVisitDurationSeconds`, `bounceRate`
+
+Затем выполняется upsert в `stg_metrica_visitors_features`.
+
+Дополнительно делается попытка получить `clientID + startURL`, чтобы точнее вычислить:
+
+- `visited_price_page`
+- `visited_program_page`
+- `visited_booking_page`
+- `clicked_booking_button`
+
+Если срез `startURL` недоступен, эти признаки заполняются безопасным fallback-эвристическим способом (по UTM/source/campaign), чтобы rebuild не падал.
 
 ### Важно про fallback
 
@@ -120,6 +141,9 @@ Fallback нужен, чтобы модуль работал даже до поя
   - `limit` (optional)
   - `use_fallback` (default: true)
   - `send_report` (default: false)
+  - `sync_features` (default: true) — перед rebuild синхронизировать real visitor features из Метрики
+  - `features_days` (default: 30) — окно данных Метрики
+  - `features_limit` (default: 50000) — лимит строк синка
 
 4. `GET /api/scoring/visitor/{visitor_id}`
 - полная карточка visitor:
@@ -131,12 +155,21 @@ Fallback нужен, чтобы модуль работал даже до поя
   - `data_source` / `source_mode`
   - `score_metadata`
 
+5. `GET /api/scoring/timeseries?days=30`
+- таймсерия сегментов для графиков (Chart.js):
+  - `dates`: массив дат
+  - `hot`: массив значений HOT
+  - `warm`: массив значений WARM
+  - `cold`: массив значений COLD
+
 ## WebApp
 
 В `/admin` добавлен раздел `Scoring`:
 
 - summary cards: hot/warm/cold/avg
-- таблица visitors
+- line chart по сегментам за 30 дней
+- distribution chart (hot/warm/cold)
+- data table visitors (Tabulator)
 - фильтры segment/source
 - кнопка rebuild
 - модалка visitor details + рекомендации
@@ -156,7 +189,13 @@ psql -h localhost -U traffic_admin -d traffic_analytics -f sql/040_scoring_v1.sq
 psql -h localhost -U traffic_admin -d traffic_analytics -f sql/042_scoring_v1_explainable_upgrade.sql
 ```
 
-2. Запустить rebuild:
+2. Построить visitor-level признаки из реальной Метрики:
+
+```bash
+python3 -m src.run_build_scoring_features --days 30 --max-rows 50000
+```
+
+3. Запустить rebuild:
 
 ```bash
 python3 -m src.run_scoring_v1
@@ -167,15 +206,17 @@ python3 -m src.run_scoring_v1
 ```bash
 python3 -m src.run_scoring_v1 --limit 500
 python3 -m src.run_scoring_v1 --no-fallback
+python3 -m src.run_scoring_v1 --features-days 30 --features-limit 50000
+python3 -m src.run_scoring_v1 --skip-build-features  # только если нужен rebuild по уже загруженному staging
 ```
 
-3. Проверить API:
+4. Проверить API:
 
 - `GET /api/scoring/summary`
 - `GET /api/scoring/visitors?limit=50`
 - `GET /api/scoring/visitor/<id>`
 
-4. Открыть `/admin` → раздел `Scoring`
+5. Открыть `/admin` → раздел `Scoring`
 
 ## Local smoke test
 
@@ -231,7 +272,7 @@ python3 -m src.run_scoring_v1 --report
 ```bash
 curl -s -X POST http://127.0.0.1:8088/api/scoring/rebuild \
   -H "Content-Type: application/json" \
-  -d '{"use_fallback": false}'
+  -d '{"use_fallback": false, "sync_features": true, "features_days": 30, "features_limit": 50000}'
 ```
 
 Через API с Telegram-отчетом:
@@ -239,8 +280,46 @@ curl -s -X POST http://127.0.0.1:8088/api/scoring/rebuild \
 ```bash
 curl -s -X POST http://127.0.0.1:8088/api/scoring/rebuild \
   -H "Content-Type: application/json" \
-  -d '{"use_fallback": false, "send_report": true}'
+  -d '{"use_fallback": false, "sync_features": true, "send_report": true}'
 ```
+
+## Pipeline шаги
+
+Рекомендуемая последовательность для production:
+
+1. `run_etl.py` (включает extract Metrica + `build_scoring_features`)
+2. `python3 -m src.run_scoring_v1 --no-fallback`
+3. Проверка `GET /api/scoring/summary`
+
+Если API Метрики временно недоступен, rebuild не блокируется при уже заполненном staging; если staging пустой и sync неуспешен — rebuild вернёт ошибку.
+
+## Как проверить, что это реальные визиты, а не 5 seed
+
+1. Проверить staging:
+
+```bash
+psql -h localhost -U traffic_admin -d traffic_analytics -c "select count(*) from stg_metrica_visitors_features;"
+```
+
+2. Проверить источники в mart:
+
+```bash
+psql -h localhost -U traffic_admin -d traffic_analytics -c "select data_source, count(*) from mart_visitor_scoring group by 1 order by 2 desc;"
+```
+
+Ожидаемо для реального контура:
+
+- доминирует `data_source = stg_metrica_visitors_features`
+- количество записей существенно больше 5
+
+3. Проверить API/UI:
+
+```bash
+curl -s "http://127.0.0.1:8088/api/scoring/summary"
+curl -s "http://127.0.0.1:8088/api/scoring/visitors?limit=100"
+```
+
+В `/admin/scoring` summary должен показывать реальное число visitor scoring записей, а не только seed.
 
 ## Telegram report
 

@@ -11,6 +11,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from src.scoring.service import (
     get_scoring_summary,
+    get_scoring_timeseries,
     get_scoring_visitor,
     get_scoring_visitors,
     rebuild_scoring_v1,
@@ -327,6 +328,12 @@ def api_scoring_summary():
     return get_scoring_summary()
 
 
+@app.get("/api/scoring/timeseries")
+def api_scoring_timeseries(days: int = 30):
+    safe_days = max(1, min(days, 365))
+    return get_scoring_timeseries(days=safe_days)
+
+
 @app.get("/api/scoring/visitors")
 def api_scoring_visitors(limit: int = 100, segment: str | None = None, source: str | None = None):
     segment_norm = segment.strip().lower() if segment else None
@@ -339,6 +346,9 @@ class ScoringRebuildIn(BaseModel):
     limit: int | None = None
     use_fallback: bool = True
     send_report: bool = False
+    sync_features: bool = True
+    features_days: int = 30
+    features_limit: int = 50000
 
 
 @app.post("/api/scoring/rebuild")
@@ -346,8 +356,18 @@ def api_scoring_rebuild(payload: ScoringRebuildIn | None = None):
     body = payload or ScoringRebuildIn()
     if body.limit is not None and body.limit <= 0:
         raise HTTPException(status_code=400, detail="limit must be positive")
+    if body.features_days <= 0:
+        raise HTTPException(status_code=400, detail="features_days must be positive")
+    if body.features_limit <= 0:
+        raise HTTPException(status_code=400, detail="features_limit must be positive")
 
-    result = rebuild_scoring_v1(limit=body.limit, use_fallback=body.use_fallback)
+    result = rebuild_scoring_v1(
+        limit=body.limit,
+        use_fallback=body.use_fallback,
+        sync_features=body.sync_features,
+        features_days=body.features_days,
+        features_limit=body.features_limit,
+    )
     if not result.get("ok", True):
         raise HTTPException(status_code=500, detail=result.get("error", "scoring rebuild failed"))
 

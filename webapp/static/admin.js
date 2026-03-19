@@ -7,11 +7,15 @@ let DASH = {
   action_log: [],
   scoring_summary: {},
   scoring_visitors: [],
+  scoring_timeseries: { dates: [], hot: [], warm: [], cold: [], ready: true },
   scoring_meta: { ready: true, count: 0, limit: 100, error: '' }
 };
 
 let CURRENT_SECTION = 'overview';
 let SCORING_FILTERS = { segment: 'all', source: '', limit: 100 };
+let SCORING_TABLE = null;
+let SCORING_TIMESERIES_CHART = null;
+let SCORING_DISTRIBUTION_CHART = null;
 
 function normalizeScoringLimit(value){
   const n = Number(value);
@@ -69,6 +73,9 @@ async function api(path, options={}){
 }
 
 function setSection(name){
+  if (CURRENT_SECTION === 'scoring' && name !== 'scoring') {
+    destroyScoringVisuals();
+  }
   CURRENT_SECTION = name;
   closeScoringDetails();
   document.querySelectorAll('.nav button').forEach(btn => {
@@ -127,6 +134,188 @@ function factorLabel(key){
     bounce_session: 'bounce session'
   };
   return labels[key] || key;
+}
+
+function normalizeTimeseries(ts){
+  const dates = Array.isArray(ts?.dates) ? ts.dates : [];
+  const hot = Array.isArray(ts?.hot) ? ts.hot : [];
+  const warm = Array.isArray(ts?.warm) ? ts.warm : [];
+  const cold = Array.isArray(ts?.cold) ? ts.cold : [];
+  const size = dates.length;
+
+  return {
+    ready: ts?.ready !== false,
+    dates,
+    hot: hot.slice(0, size).map(v => Number(v || 0)),
+    warm: warm.slice(0, size).map(v => Number(v || 0)),
+    cold: cold.slice(0, size).map(v => Number(v || 0)),
+  };
+}
+
+function destroyScoringVisuals(){
+  if (SCORING_TABLE && typeof SCORING_TABLE.destroy === 'function') {
+    SCORING_TABLE.destroy();
+  }
+  SCORING_TABLE = null;
+
+  if (SCORING_TIMESERIES_CHART && typeof SCORING_TIMESERIES_CHART.destroy === 'function') {
+    SCORING_TIMESERIES_CHART.destroy();
+  }
+  SCORING_TIMESERIES_CHART = null;
+
+  if (SCORING_DISTRIBUTION_CHART && typeof SCORING_DISTRIBUTION_CHART.destroy === 'function') {
+    SCORING_DISTRIBUTION_CHART.destroy();
+  }
+  SCORING_DISTRIBUTION_CHART = null;
+}
+
+function initScoringTable(rows){
+  const tableEl = document.getElementById('scoring-table');
+  if (!tableEl) return;
+
+  if (typeof Tabulator === 'undefined') {
+    tableEl.innerHTML = `<div class="empty">Tabulator не загружен. Обновите страницу.</div>`;
+    return;
+  }
+
+  SCORING_TABLE = new Tabulator(tableEl, {
+    data: rows || [],
+    layout: 'fitColumns',
+    responsiveLayout: 'collapse',
+    pagination: false,
+    movableColumns: false,
+    height: '520px',
+    placeholder: 'Нет данных scoring',
+    initialSort: [{ column: 'scored_at', dir: 'desc' }],
+    columns: [
+      { title: 'Visitor ID', field: 'visitor_id', minWidth: 180, headerSort: true },
+      {
+        title: 'Score',
+        field: 'score',
+        width: 90,
+        hozAlign: 'center',
+        sorter: 'number',
+        formatter: cell => Number(cell.getValue() || 0).toFixed(3),
+      },
+      {
+        title: 'Segment',
+        field: 'segment',
+        width: 110,
+        hozAlign: 'center',
+        sorter: 'string',
+        headerFilter: 'list',
+        headerFilterParams: {
+          values: { '': 'Все', hot: 'hot', warm: 'warm', cold: 'cold' },
+        },
+        formatter: cell => segmentBadge(cell.getValue()),
+      },
+      { title: 'Причина', field: 'short_reason', minWidth: 140, sorter: 'string' },
+      {
+        title: 'Почему такой score',
+        field: 'human_explanation',
+        minWidth: 260,
+        formatter: cell => esc(shortText(cell.getValue() || '-', 140)),
+      },
+      {
+        title: 'Рекомендация',
+        field: 'recommended_action',
+        minWidth: 250,
+        formatter: cell => esc(shortText(cell.getValue() || '-', 130)),
+      },
+      {
+        title: 'Источник',
+        field: 'traffic_source',
+        minWidth: 140,
+        sorter: 'string',
+        headerFilter: 'input',
+      },
+      {
+        title: 'Scored At',
+        field: 'scored_at',
+        minWidth: 170,
+        sorter: 'string',
+      },
+      {
+        title: 'Подробнее',
+        width: 120,
+        hozAlign: 'center',
+        headerSort: false,
+        formatter: () => '<button class="btn">Открыть</button>',
+        cellClick: (_e, cell) => {
+          const row = cell.getRow().getData() || {};
+          openScoringDetails(row.visitor_id);
+        },
+      },
+    ],
+  });
+}
+
+function initScoringCharts(){
+  const tsCanvas = document.getElementById('scoring-timeseries-chart');
+  const distCanvas = document.getElementById('scoring-distribution-chart');
+  if (typeof Chart === 'undefined') {
+    if (tsCanvas && tsCanvas.parentElement) tsCanvas.parentElement.innerHTML = '<div class="empty">Chart.js не загружен</div>';
+    if (distCanvas && distCanvas.parentElement) distCanvas.parentElement.innerHTML = '<div class="empty">Chart.js не загружен</div>';
+    return;
+  }
+  if (!tsCanvas || !distCanvas) return;
+
+  const ts = normalizeTimeseries(DASH.scoring_timeseries || {});
+  const tsTotal = [...ts.hot, ...ts.warm, ...ts.cold].reduce((acc, n) => acc + Number(n || 0), 0);
+  if (!ts.dates.length || tsTotal === 0) {
+    if (tsCanvas.parentElement) {
+      tsCanvas.parentElement.innerHTML = '<div class="empty">Нет данных для графика за выбранный период</div>';
+    }
+  } else {
+  SCORING_TIMESERIES_CHART = new Chart(tsCanvas, {
+    type: 'line',
+    data: {
+      labels: ts.dates,
+      datasets: [
+        { label: 'HOT', data: ts.hot, borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,.15)', tension: 0.25 },
+        { label: 'WARM', data: ts.warm, borderColor: '#d97706', backgroundColor: 'rgba(217,119,6,.15)', tension: 0.25 },
+        { label: 'COLD', data: ts.cold, borderColor: '#94a3b8', backgroundColor: 'rgba(148,163,184,.15)', tension: 0.25 },
+      ],
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#f5f7fb' } } },
+      scales: {
+        x: { ticks: { color: '#8d99ae', maxRotation: 0 }, grid: { color: 'rgba(35,40,54,.55)' } },
+        y: { ticks: { color: '#8d99ae' }, grid: { color: 'rgba(35,40,54,.55)' }, beginAtZero: true },
+      },
+    },
+  });
+  }
+
+  const s = DASH.scoring_summary || {};
+  const distData = [Number(s.hot_count || 0), Number(s.warm_count || 0), Number(s.cold_count || 0)];
+  const distTotal = distData.reduce((acc, n) => acc + n, 0);
+  if (distTotal === 0) {
+    if (distCanvas.parentElement) {
+      distCanvas.parentElement.innerHTML = '<div class="empty">Нет данных для распределения сегментов</div>';
+    }
+    return;
+  }
+
+  SCORING_DISTRIBUTION_CHART = new Chart(distCanvas, {
+    type: 'doughnut',
+    data: {
+      labels: ['HOT', 'WARM', 'COLD'],
+      datasets: [
+        {
+          data: distData,
+          backgroundColor: ['#16a34a', '#d97706', '#64748b'],
+          borderColor: ['#0f172a', '#0f172a', '#0f172a'],
+          borderWidth: 1,
+        },
+      ],
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#f5f7fb' } } },
+    },
+  });
 }
 
 function bySearch(items, fields, q){
@@ -473,6 +662,8 @@ function renderForecast(){
 }
 
 function renderScoring(){
+  destroyScoringVisuals();
+
   const s = DASH.scoring_summary || {};
   const rows = DASH.scoring_visitors || [];
   const meta = DASH.scoring_meta || {};
@@ -486,6 +677,21 @@ function renderScoring(){
       <div class="card"><div class="metric-label">Средний score</div><div class="metric-value">${esc(avg)}</div></div>
     </div>
 
+    <div class="scoring-grid">
+      <div class="panel">
+        <div class="panel-title">Типы посетителей за 30 дней</div>
+        <div class="chart-box">
+          <canvas id="scoring-timeseries-chart"></canvas>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Распределение сегментов</div>
+        <div class="chart-box">
+          <canvas id="scoring-distribution-chart"></canvas>
+        </div>
+      </div>
+    </div>
+
     <div class="panel">
       <div class="row" style="justify-content:space-between">
         <div class="panel-title" style="margin-bottom:0">Scoring посетителей</div>
@@ -495,20 +701,29 @@ function renderScoring(){
         </div>
       </div>
 
-      <div class="row" style="margin-top:12px">
-        <select id="scoring-limit-filter" class="select" style="max-width:120px">
-          <option value="50">50</option>
-          <option value="100">100</option>
-          <option value="200">200</option>
-        </select>
-        <select id="scoring-segment-filter" class="select" style="max-width:180px">
-          <option value="all">Все сегменты</option>
-          <option value="hot">Hot</option>
-          <option value="warm">Warm</option>
-          <option value="cold">Cold</option>
-        </select>
-        <input id="scoring-source-filter" class="input" placeholder="Фильтр по source/каналу"/>
-        <button class="btn" onclick="applyScoringFilters()">Применить фильтры</button>
+      <div class="row scoring-filter-row mt-3">
+        <div class="col-md-2 col-sm-6">
+          <select id="scoring-limit-filter" class="form-select">
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+          </select>
+        </div>
+        <div class="col-md-3 col-sm-6">
+          <select id="scoring-segment-filter" class="form-select">
+            <option value="all">Все сегменты</option>
+            <option value="hot">Hot</option>
+            <option value="warm">Warm</option>
+            <option value="cold">Cold</option>
+          </select>
+        </div>
+        <div class="col-md-4 col-sm-12">
+          <input id="scoring-source-filter" class="form-control" placeholder="Фильтр по source/каналу"/>
+        </div>
+        <div class="col-md-3 col-sm-12 d-flex gap-2">
+          <button class="btn" onclick="applyScoringFilters()">Применить</button>
+          <button class="btn ghost" onclick="resetScoringFilters()">Сброс</button>
+        </div>
       </div>
 
       <div class="small muted" style="margin-top:10px">
@@ -517,35 +732,8 @@ function renderScoring(){
       ${meta.ready === false ? `<div class="code" style="margin-top:10px">Scoring таблицы не готовы: ${esc(meta.error || 'run sql/040_scoring_v1.sql')}</div>` : ''}
     </div>
 
-    <div class="table-wrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Visitor ID</th>
-            <th>Segment</th>
-            <th>Score</th>
-            <th>Причина</th>
-            <th>Почему такой score</th>
-            <th>Рекомендация</th>
-            <th>Подробнее</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.length ? rows.map(r => `
-            <tr>
-              <td><div class="code">${esc(r.visitor_id || '')}</div></td>
-              <td>${segmentBadge(r.segment)}</td>
-              <td><b>${esc(Number((r.score ?? r.normalized_score ?? 0)).toFixed(3))}</b></td>
-              <td><span class="badge">${esc(r.short_reason || '-')}</span></td>
-              <td>${esc(shortText(r.human_explanation || '-', 140))}</td>
-              <td>${esc(shortText(r.recommended_action || '-', 120))}</td>
-              <td>
-                <button class="btn" onclick='openScoringDetails(${JSON.stringify(r.visitor_id || "")})'>Подробно</button>
-              </td>
-            </tr>
-          `).join('') : `<tr><td colspan="7"><div class="empty">Нет данных scoring</div></td></tr>`}
-        </tbody>
-      </table>
+    <div class="panel">
+      <div id="scoring-table"></div>
     </div>
   `;
 
@@ -555,6 +743,9 @@ function renderScoring(){
   if (limitSelect) limitSelect.value = String(SCORING_FILTERS.limit || 100);
   if (segmentSelect) segmentSelect.value = SCORING_FILTERS.segment || 'all';
   if (sourceInput) sourceInput.value = SCORING_FILTERS.source || '';
+
+  initScoringCharts();
+  initScoringTable(rows);
 }
 
 async function loadScoringData(){
@@ -567,18 +758,30 @@ async function loadScoringData(){
     params.set('source', SCORING_FILTERS.source.trim());
   }
 
-  const [summary, visitors] = await Promise.all([
+  const [summaryRes, visitorsRes, timeseriesRes] = await Promise.allSettled([
     api('/api/scoring/summary'),
     api('/api/scoring/visitors?' + params.toString()),
+    api('/api/scoring/timeseries?days=30'),
   ]);
+
+  const summary = summaryRes.status === 'fulfilled'
+    ? summaryRes.value
+    : { ready: false, error: summaryRes.reason?.message || 'summary api failed' };
+  const visitors = visitorsRes.status === 'fulfilled'
+    ? visitorsRes.value
+    : { ready: false, items: [], count: 0, limit: SCORING_FILTERS.limit || 100, error: visitorsRes.reason?.message || 'visitors api failed' };
+  const timeseries = timeseriesRes.status === 'fulfilled'
+    ? timeseriesRes.value
+    : { ready: false, dates: [], hot: [], warm: [], cold: [], error: timeseriesRes.reason?.message || 'timeseries api failed' };
 
   DASH.scoring_summary = summary || {};
   DASH.scoring_visitors = visitors.items || [];
+  DASH.scoring_timeseries = normalizeTimeseries(timeseries || {});
   DASH.scoring_meta = {
-    ready: (summary.ready !== false) && (visitors.ready !== false),
+    ready: (summary.ready !== false) && (visitors.ready !== false) && (timeseries.ready !== false),
     count: visitors.count ?? (DASH.scoring_visitors || []).length,
     limit: visitors.limit ?? 100,
-    error: visitors.error || summary.error || '',
+    error: visitors.error || summary.error || timeseries.error || '',
   };
 }
 
@@ -598,11 +801,17 @@ async function applyScoringFilters(){
   await loadScoringDataAndRender();
 }
 
+async function resetScoringFilters(){
+  SCORING_FILTERS = { segment: 'all', source: '', limit: 100 };
+  await loadScoringDataAndRender();
+}
+
 async function rebuildScoring(){
   const data = await api('/api/scoring/rebuild', {
     method:'POST',
     body: JSON.stringify({
-      use_fallback: true
+      use_fallback: true,
+      sync_features: true
     })
   });
   alert(`Scoring пересчитан. Обработано: ${data.processed || 0}, записано: ${data.upserted || 0}, источник: ${data.source_mode || '-'}`);
@@ -611,8 +820,14 @@ async function rebuildScoring(){
 
 async function openScoringDetails(visitorId){
   if (!visitorId) return;
-  const data = await api('/api/scoring/visitor/' + encodeURIComponent(visitorId));
-  const explanation = data.explanation_json || {};
+  let data = {};
+  try {
+    data = await api('/api/scoring/visitor/' + encodeURIComponent(visitorId));
+  } catch (e) {
+    alert('Не удалось загрузить visitor detail: ' + e.message);
+    return;
+  }
+  const explanation = (data && typeof data.explanation_json === 'object' && data.explanation_json) ? data.explanation_json : {};
 
   const sourceText = [data.traffic_source, data.utm_source, data.utm_medium]
     .filter(Boolean)

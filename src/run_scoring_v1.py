@@ -23,9 +23,32 @@ def main() -> None:
         action="store_true",
         help="send scoring summary report to Telegram after rebuild",
     )
+    parser.add_argument(
+        "--skip-build-features",
+        action="store_true",
+        help="do not sync visitor features from real Metrica data before rebuild",
+    )
+    parser.add_argument(
+        "--features-days",
+        type=int,
+        default=30,
+        help="lookback window (days) for Metrica visitor feature sync",
+    )
+    parser.add_argument(
+        "--features-limit",
+        type=int,
+        default=50000,
+        help="max rows for Metrica visitor feature sync",
+    )
     args = parser.parse_args()
 
-    result = rebuild_scoring_v1(limit=args.limit, use_fallback=not args.no_fallback)
+    result = rebuild_scoring_v1(
+        limit=args.limit,
+        use_fallback=not args.no_fallback,
+        sync_features=not args.skip_build_features,
+        features_days=args.features_days,
+        features_limit=args.features_limit,
+    )
 
     if args.report:
         try:

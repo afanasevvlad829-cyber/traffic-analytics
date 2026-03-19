@@ -5,6 +5,7 @@ from datetime import datetime, date, timedelta
 from src.extract_metrica import run as run_metrica
 from src.extract_webmaster import run as run_webmaster
 from src.extract_direct import run as run_direct
+from src.scoring.feature_sync import build_scoring_features
 
 
 def log(msg):
@@ -38,6 +39,12 @@ def main():
         log(f"METRICA result: {run_metrica(report_date)}")
     except Exception as e:
         log(f"ERROR in METRICA: {e}")
+
+    try:
+        log("Building scoring visitor-level features from METRICA")
+        log(f"SCORING FEATURES result: {build_scoring_features(days=30, max_rows=50000)}")
+    except Exception as e:
+        log(f"ERROR in scoring feature build: {e}")
 
     try:
         log("Running WEBMASTER extractor")

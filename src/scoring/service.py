@@ -6,6 +6,7 @@ from psycopg2.extras import Json, RealDictCursor
 
 from src.db import db_cursor, get_connection
 from src.scoring.feature_builder import FeatureBuilder, VisitorFeatures
+from src.scoring.feature_sync import build_scoring_features
 from src.scoring.scorer import RuleBasedScorer
 
 UNDEFINED_TABLE_PGCODE = "42P01"
@@ -16,7 +17,33 @@ class ScoringService:
     def __init__(self) -> None:
         self.scorer = RuleBasedScorer()
 
-    def rebuild(self, limit: int | None = None, use_fallback: bool = True) -> dict[str, Any]:
+    def rebuild(
+        self,
+        limit: int | None = None,
+        use_fallback: bool = True,
+        sync_features: bool = True,
+        features_days: int = 30,
+        features_limit: int = 50000,
+    ) -> dict[str, Any]:
+        feature_sync_result: dict[str, Any] | None = None
+        if sync_features:
+            try:
+                feature_sync_result = build_scoring_features(
+                    days=features_days,
+                    max_rows=features_limit,
+                )
+            except Exception as exc:  # noqa: BLE001
+                feature_sync_result = {"ok": False, "skipped": False, "error": str(exc)}
+
+            if feature_sync_result and not feature_sync_result.get("ok", False):
+                if not feature_sync_result.get("skipped", False) and self._count_staging_rows() == 0:
+                    return {
+                        "ok": False,
+                        "ready": False,
+                        "error": "failed to sync real metrica visitor features",
+                        "feature_sync": feature_sync_result,
+                    }
+
         builder = FeatureBuilder(use_fallback=use_fallback)
 
         try:
@@ -38,6 +65,7 @@ class ScoringService:
                 "upserted": 0,
                 "source_mode": builder.source_mode,
                 "scoring_version": self.scorer.scoring_version,
+                "feature_sync": feature_sync_result,
             }
 
         upserted = 0
@@ -56,6 +84,7 @@ class ScoringService:
             "upserted": upserted,
             "source_mode": builder.source_mode,
             "scoring_version": self.scorer.scoring_version,
+            "feature_sync": feature_sync_result,
         }
 
     def get_summary(self) -> dict[str, Any]:
@@ -226,6 +255,79 @@ class ScoringService:
         finally:
             conn.close()
 
+    def get_timeseries(self, days: int = 30) -> dict[str, Any]:
+        safe_days = max(1, min(int(days or 30), 365))
+        check_sql = """
+            select count(*)::int as cnt
+            from mart_visitor_scoring
+            where scored_at::date >= current_date - (%s::int - 1)
+        """
+        sql = """
+            with date_axis as (
+                select generate_series(
+                    current_date - (%s::int - 1),
+                    current_date,
+                    interval '1 day'
+                )::date as day
+            ),
+            seg as (
+                select
+                    scored_at::date as day,
+                    count(*) filter (where segment = 'hot')::int as hot,
+                    count(*) filter (where segment = 'warm')::int as warm,
+                    count(*) filter (where segment = 'cold')::int as cold
+                from mart_visitor_scoring
+                where scored_at::date >= current_date - (%s::int - 1)
+                group by scored_at::date
+            )
+            select
+                to_char(a.day, 'YYYY-MM-DD') as date,
+                coalesce(s.hot, 0)::int as hot,
+                coalesce(s.warm, 0)::int as warm,
+                coalesce(s.cold, 0)::int as cold
+            from date_axis a
+            left join seg s on s.day = a.day
+            order by a.day asc
+        """
+        conn = get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(check_sql, (safe_days,))
+                cnt_row = cur.fetchone() or {}
+                if int(cnt_row.get("cnt") or 0) == 0:
+                    return {
+                        "ready": True,
+                        "days": safe_days,
+                        "dates": [],
+                        "hot": [],
+                        "warm": [],
+                        "cold": [],
+                    }
+                cur.execute(sql, (safe_days, safe_days))
+                rows = [dict(row) for row in cur.fetchall()]
+                return {
+                    "ready": True,
+                    "days": safe_days,
+                    "dates": [str(row.get("date") or "") for row in rows],
+                    "hot": [int(row.get("hot") or 0) for row in rows],
+                    "warm": [int(row.get("warm") or 0) for row in rows],
+                    "cold": [int(row.get("cold") or 0) for row in rows],
+                }
+        except Exception as exc:  # noqa: BLE001
+            if self._is_undefined_table_error(exc):
+                return {
+                    "ready": False,
+                    "days": safe_days,
+                    "dates": [],
+                    "hot": [],
+                    "warm": [],
+                    "cold": [],
+                    "error": "scoring schema is missing, run sql/040_scoring_v1.sql and sql/042_scoring_v1_explainable_upgrade.sql",
+                }
+            raise
+        finally:
+            conn.close()
+
     @staticmethod
     def _upsert_scoring_row(cur, features: VisitorFeatures, score) -> None:
         cur.execute(
@@ -327,12 +429,37 @@ class ScoringService:
     def _is_undefined_table_error(exc: Exception) -> bool:
         return getattr(exc, "pgcode", None) in (UNDEFINED_TABLE_PGCODE, UNDEFINED_COLUMN_PGCODE)
 
+    @staticmethod
+    def _count_staging_rows() -> int:
+        conn = get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("select count(*)::int as cnt from stg_metrica_visitors_features")
+                row = cur.fetchone() or {}
+                return int(row.get("cnt") or 0)
+        except Exception:
+            return 0
+        finally:
+            conn.close()
+
 
 _service = ScoringService()
 
 
-def rebuild_scoring_v1(limit: int | None = None, use_fallback: bool = True) -> dict[str, Any]:
-    return _service.rebuild(limit=limit, use_fallback=use_fallback)
+def rebuild_scoring_v1(
+    limit: int | None = None,
+    use_fallback: bool = True,
+    sync_features: bool = True,
+    features_days: int = 30,
+    features_limit: int = 50000,
+) -> dict[str, Any]:
+    return _service.rebuild(
+        limit=limit,
+        use_fallback=use_fallback,
+        sync_features=sync_features,
+        features_days=features_days,
+        features_limit=features_limit,
+    )
 
 
 def get_scoring_summary() -> dict[str, Any]:
@@ -349,3 +476,7 @@ def get_scoring_visitors(
 
 def get_scoring_visitor(visitor_id: str) -> dict[str, Any] | None:
     return _service.get_visitor(visitor_id)
+
+
+def get_scoring_timeseries(days: int = 30) -> dict[str, Any]:
+    return _service.get_timeseries(days=days)
