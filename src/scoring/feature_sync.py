@@ -52,9 +52,13 @@ def _to_int(value: float) -> int:
     return int(round(value))
 
 
-def _guess_traffic_source(utm_source: str, utm_medium: str) -> str:
-    source = (utm_source or "").strip().lower()
-    medium = (utm_medium or "").strip().lower()
+def _norm_token(value: str) -> str:
+    return (value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _legacy_guess_traffic_source(utm_source: str, utm_medium: str) -> str:
+    source = _norm_token(utm_source)
+    medium = _norm_token(utm_medium)
     if medium in {"cpc", "ppc", "paid", "cpm", "cpv", "display"}:
         return "paid"
     if medium in {"organic", "seo"}:
@@ -68,22 +72,160 @@ def _guess_traffic_source(utm_source: str, utm_medium: str) -> str:
     return "referral"
 
 
+def _source_rank(source: str) -> int:
+    ranks = {
+        "yandex_direct": 100,
+        "vk_ads": 95,
+        "google_ads": 92,
+        "paid_ads": 90,
+        "email": 70,
+        "messenger": 65,
+        "social": 60,
+        "organic": 55,
+        "referral": 45,
+        "direct": 35,
+        "unknown": 0,
+    }
+    return ranks.get(_norm_token(source), 10)
+
+
+def _derive_traffic_source(utm_source: str, utm_medium: str, raw_url: str, query_keys: set[str]) -> str:
+    source = _norm_token(utm_source)
+    medium = _norm_token(utm_medium)
+    url_low = (raw_url or "").lower()
+    paid_mediums = {
+        "cpc",
+        "ppc",
+        "paid",
+        "cpm",
+        "cpv",
+        "display",
+        "banner",
+        "paid_social",
+        "paidsearch",
+        "context",
+    }
+    social_sources = {"vk", "vkontakte", "ok", "odnoklassniki", "facebook", "instagram", "meta", "tiktok", "youtube"}
+    messenger_sources = {"telegram", "tg", "whatsapp", "viber"}
+    search_sources = {"yandex", "google", "bing", "duckduckgo", "mail", "mail_ru", "rambler"}
+
+    has_yclid = "yclid" in query_keys or "ymclid" in query_keys
+    has_vkclid = "vkclid" in query_keys
+    has_gclid = "gclid" in query_keys
+
+    if has_yclid or "yandex_direct" in source or source in {"yandex", "ya"}:
+        if medium in paid_mediums or has_yclid or "direct" in url_low or "utm_campaign" in query_keys:
+            return "yandex_direct"
+
+    if has_vkclid or source in {"vk", "vkontakte"}:
+        if medium in paid_mediums or has_vkclid:
+            return "vk_ads"
+        return "social"
+
+    if has_gclid or source in {"google_ads", "adwords"}:
+        return "google_ads"
+
+    if medium in {"email", "e_mail", "newsletter", "mail"} or source in {"email", "newsletter"}:
+        return "email"
+
+    if medium in {"messenger", "chat"} or source in messenger_sources:
+        return "messenger"
+
+    if medium in {"social", "smm", "social_network"} or source in social_sources:
+        return "social"
+
+    if medium in {"organic", "seo"} or (source in search_sources and medium not in paid_mediums and not has_gclid):
+        return "organic"
+
+    if medium in paid_mediums:
+        if "yandex" in source:
+            return "yandex_direct"
+        if source in {"vk", "vkontakte"}:
+            return "vk_ads"
+        return "paid_ads"
+
+    if source in {"direct", "(direct)", "none", "(none)"} or medium in {"direct", "none", "(none)"}:
+        return "direct"
+
+    if source:
+        return "referral"
+
+    # Если нет ни UTM, ни явных маркеров, для startURL это чаще всего прямой заход.
+    return "direct"
+
+
+def _derive_traffic_source_from_hints(
+    *,
+    traffic_source: str,
+    source_engine: str,
+    utm_source: str,
+    utm_medium: str,
+    utm_campaign: str,
+) -> str:
+    traffic = _norm_token(traffic_source)
+    engine = _norm_token(source_engine)
+    source = _norm_token(utm_source)
+    medium = _norm_token(utm_medium)
+    campaign = _norm_token(utm_campaign)
+
+    if traffic in {"organic", "organic_search"}:
+        return "organic"
+    if traffic in {"direct", "internal"}:
+        return "direct"
+    if traffic in {"social_network", "social"}:
+        return "social"
+    if traffic in {"ad", "ad_engine", "cpc"}:
+        if engine in {"yandex_direct", "yandex"}:
+            return "yandex_direct"
+        if engine in {"vk_ads", "vk"}:
+            return "vk_ads"
+        return "paid_ads"
+    if traffic in {"referral", "recommendation"}:
+        return "referral"
+    if traffic in {"email"}:
+        return "email"
+    if traffic in {"messenger"}:
+        return "messenger"
+
+    # UTM fallback (priority)
+    if source or medium:
+        return _derive_traffic_source(
+            utm_source=utm_source,
+            utm_medium=utm_medium,
+            raw_url=" ".join([traffic_source, source_engine, utm_campaign]),
+            query_keys=set(),
+        )
+
+    # campaign/source-engine fallback for known ad systems
+    if "yandex" in engine or "yandex" in campaign:
+        return "yandex_direct"
+    if engine in {"vk", "vk_ads", "vkontakte"} or "vk" in campaign:
+        return "vk_ads"
+    if engine in {"google_ads", "adwords"} or "google" in campaign:
+        return "google_ads"
+
+    return "unknown"
+
+
 def _extract_url_signals(raw_url: str) -> dict[str, Any]:
     parsed = urlparse(raw_url or "")
     query = parse_qs(parsed.query or "")
     path = (parsed.path or "").lower()
+    query_keys = {str(k or "").strip().lower() for k in query.keys()}
 
     def _q(name: str) -> str:
         values = query.get(name) or []
         return str(values[0] if values else "").strip()
 
-    utm_source = _q("utm_source")
-    utm_medium = _q("utm_medium")
+    utm_source = _q("utm_source") or _q("source") or _q("src") or _q("from")
+    utm_medium = _q("utm_medium") or _q("medium") or _q("utm_channel")
     text_blob = " ".join([path, raw_url or ""]).lower()
+    traffic_source = _derive_traffic_source(utm_source=utm_source, utm_medium=utm_medium, raw_url=raw_url, query_keys=query_keys)
 
     return {
         "utm_source": utm_source,
         "utm_medium": utm_medium,
+        "traffic_source": traffic_source,
         "visited_price_page": _bool_keyword(text_blob, ["price", "pricing", "цена", "стоим"]),
         "visited_program_page": _bool_keyword(text_blob, ["program", "программ", "schedule", "camp-program"]),
         "visited_booking_page": _bool_keyword(text_blob, ["book", "booking", "reserve", "брон", "запис"]),
@@ -243,6 +385,7 @@ def _load_client_page_signals(
                     "utm_source": "",
                     "utm_medium": "",
                     "traffic_source": "unknown",
+                    "source_rank": _source_rank("unknown"),
                     "device_type": "",
                     "visited_price_page": False,
                     "visited_program_page": False,
@@ -256,6 +399,8 @@ def _load_client_page_signals(
                 continue
 
             url_signals = _extract_url_signals(start_url_raw)
+            candidate_source = str(url_signals.get("traffic_source") or "unknown")
+            candidate_rank = _source_rank(candidate_source)
             row["visited_price_page"] = bool(row["visited_price_page"]) or bool(url_signals["visited_price_page"])
             row["visited_program_page"] = bool(row["visited_program_page"]) or bool(url_signals["visited_program_page"])
             row["visited_booking_page"] = bool(row["visited_booking_page"]) or bool(url_signals["visited_booking_page"])
@@ -265,7 +410,10 @@ def _load_client_page_signals(
                 row["utm_source"] = str(url_signals["utm_source"])
             if not row["utm_medium"] and url_signals["utm_medium"]:
                 row["utm_medium"] = str(url_signals["utm_medium"])
-            row["traffic_source"] = _guess_traffic_source(str(row["utm_source"]), str(row["utm_medium"]))
+
+            if candidate_rank > int(row.get("source_rank") or 0):
+                row["traffic_source"] = candidate_source
+                row["source_rank"] = candidate_rank
 
         pages += 1
         fetched += len(rows)
@@ -275,6 +423,27 @@ def _load_client_page_signals(
             break
         if total_rows and fetched >= min(total_rows, safe_max_rows):
             break
+
+    unknown_before = 0
+    unknown_after = 0
+    dist: dict[str, int] = {}
+    for signal in signals.values():
+        src = str(signal.get("traffic_source") or "unknown")
+        legacy = _legacy_guess_traffic_source(
+            str(signal.get("utm_source") or ""),
+            str(signal.get("utm_medium") or ""),
+        )
+        if legacy == "unknown":
+            unknown_before += 1
+        if src == "unknown":
+            unknown_after += 1
+        dist[src] = int(dist.get(src, 0) or 0) + 1
+        signal.pop("source_rank", None)
+
+    top_sources = [
+        {"traffic_source": key, "count": value}
+        for key, value in sorted(dist.items(), key=lambda x: x[1], reverse=True)[:10]
+    ]
 
     return (
         signals,
@@ -286,6 +455,11 @@ def _load_client_page_signals(
             "pages": pages,
             "total_rows_reported": total_rows,
             "clients": len(signals),
+            "attribution_stats": {
+                "unknown_before": unknown_before,
+                "unknown_after": unknown_after,
+                "top_traffic_sources": top_sources,
+            },
         },
     )
 
@@ -455,6 +629,13 @@ def build_scoring_features(
             utm_medium = _safe_dim(dims, 4)
             device_type = _safe_dim(dims, 5)
             utm_campaign = _safe_dim(dims, 6)
+            resolved_source = _derive_traffic_source_from_hints(
+                traffic_source=traffic_source,
+                source_engine=source_engine,
+                utm_source=utm_source,
+                utm_medium=utm_medium,
+                utm_campaign=utm_campaign,
+            )
 
             sessions_count = _to_int(_safe_metric(metrics, 0))
             page_depth = _safe_metric(metrics, 1)
@@ -514,7 +695,7 @@ def build_scoring_features(
                     ),
                     "scroll_70": scroll_70,
                     "return_visitor": return_visitor,
-                    "traffic_source": traffic_source or "unknown",
+                    "traffic_source": resolved_source,
                     "utm_source": utm_source or source_engine,
                     "utm_medium": utm_medium,
                     "device_type": device_type,
