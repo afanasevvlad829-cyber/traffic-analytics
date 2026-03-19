@@ -130,6 +130,14 @@ def _upsert_feature_rows(rows: list[dict[str, Any]]) -> int:
     return upserted
 
 
+def _clear_staging_features() -> int:
+    with db_cursor() as (_, cur):
+        cur.execute("select count(*)::int as cnt from stg_metrica_visitors_features")
+        before = int((cur.fetchone() or [0])[0] if cur.description else 0)
+        cur.execute("delete from stg_metrica_visitors_features")
+    return before
+
+
 def _load_client_page_signals(
     token: str,
     counter_id: str,
@@ -224,6 +232,7 @@ def build_scoring_features(
     days: int = 30,
     max_rows: int = 50000,
     page_limit: int = 10000,
+    replace: bool = True,
 ) -> dict[str, Any]:
     """
     Синхронизация visitor-level фичей в stg_metrica_visitors_features.
@@ -260,6 +269,19 @@ def build_scoring_features(
     total_rows: int | None = None
     page_signals: dict[str, dict[str, bool]] = {}
     page_signal_status: dict[str, Any] = {"ok": False, "reason": "not_started"}
+    cleared_rows = 0
+
+    if replace:
+        try:
+            cleared_rows = _clear_staging_features()
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "skipped": False,
+                "reason": f"failed to clear stg_metrica_visitors_features: {exc}",
+                "fetched": 0,
+                "upserted": 0,
+            }
 
     try:
         page_signals, page_signal_status = _load_client_page_signals(
@@ -410,6 +432,8 @@ def build_scoring_features(
         "date_to": date_to.isoformat(),
         "fetched": fetched,
         "upserted": upserted,
+        "replace_mode": bool(replace),
+        "cleared_rows": int(cleared_rows),
         "pages": pages,
         "skipped_no_id": skipped_no_id,
         "total_rows_reported": total_rows,
