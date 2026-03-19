@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from datetime import date, datetime, time, timedelta
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import requests
 
@@ -49,6 +50,45 @@ def _to_int(value: float) -> int:
     if value <= 0:
         return 0
     return int(round(value))
+
+
+def _guess_traffic_source(utm_source: str, utm_medium: str) -> str:
+    source = (utm_source or "").strip().lower()
+    medium = (utm_medium or "").strip().lower()
+    if medium in {"cpc", "ppc", "paid", "cpm", "cpv", "display"}:
+        return "paid"
+    if medium in {"organic", "seo"}:
+        return "organic"
+    if medium in {"social", "smm"}:
+        return "social"
+    if not source and not medium:
+        return "unknown"
+    if medium in {"none", "direct"}:
+        return "direct"
+    return "referral"
+
+
+def _extract_url_signals(raw_url: str) -> dict[str, Any]:
+    parsed = urlparse(raw_url or "")
+    query = parse_qs(parsed.query or "")
+    path = (parsed.path or "").lower()
+
+    def _q(name: str) -> str:
+        values = query.get(name) or []
+        return str(values[0] if values else "").strip()
+
+    utm_source = _q("utm_source")
+    utm_medium = _q("utm_medium")
+    text_blob = " ".join([path, raw_url or ""]).lower()
+
+    return {
+        "utm_source": utm_source,
+        "utm_medium": utm_medium,
+        "visited_price_page": _bool_keyword(text_blob, ["price", "pricing", "цена", "стоим"]),
+        "visited_program_page": _bool_keyword(text_blob, ["program", "программ", "schedule", "camp-program"]),
+        "visited_booking_page": _bool_keyword(text_blob, ["book", "booking", "reserve", "брон", "запис"]),
+        "clicked_booking_button": _bool_keyword(text_blob, ["book=1", "booking_click", "utm_content=book", "cta=book"]),
+    }
 
 
 def _upsert_feature_rows(rows: list[dict[str, Any]]) -> int:
@@ -133,7 +173,8 @@ def _upsert_feature_rows(rows: list[dict[str, Any]]) -> int:
 def _clear_staging_features() -> int:
     with db_cursor() as (_, cur):
         cur.execute("select count(*)::int as cnt from stg_metrica_visitors_features")
-        before = int((cur.fetchone() or [0])[0] if cur.description else 0)
+        row = cur.fetchone()
+        before = int((row[0] if row else 0) or 0)
         cur.execute("delete from stg_metrica_visitors_features")
     return before
 
@@ -145,7 +186,7 @@ def _load_client_page_signals(
     date_to: date,
     max_rows: int,
     page_limit: int,
-) -> tuple[dict[str, dict[str, bool]], dict[str, Any]]:
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
     """
     Пытаемся получить более реалистичные page signals через clientID + startURL.
     Если API-срез недоступен, вызывающий код просто продолжит без этой детализации.
@@ -155,9 +196,14 @@ def _load_client_page_signals(
     fetched = 0
     safe_max_rows = max(1, min(max_rows, 200000))
     safe_page_limit = max(1, min(page_limit, 100000))
-    signals: dict[str, dict[str, bool]] = {}
+    signals: dict[str, dict[str, Any]] = {}
     total_rows: int | None = None
     pages = 0
+    query_info = {
+        "dimensions": ["ym:s:clientID", "ym:s:startURL"],
+        "metrics": ["ym:s:visits"],
+        "filters": "",
+    }
 
     while fetched < safe_max_rows:
         page_size = min(safe_page_limit, safe_max_rows - fetched)
@@ -182,7 +228,9 @@ def _load_client_page_signals(
         for item in rows:
             dims = item.get("dimensions") or []
             client_id = _safe_dim(dims, 0)
-            start_url = _safe_dim(dims, 1).lower()
+            start_url_raw = _safe_dim(dims, 1)
+            start_url = start_url_raw.lower()
+            visits = max(0.0, _safe_metric(item.get("metrics") or [], 0))
 
             if _is_invalid_client_id(client_id):
                 continue
@@ -190,23 +238,34 @@ def _load_client_page_signals(
             row = signals.setdefault(
                 client_id,
                 {
+                    "sessions_count": 0,
+                    "pageviews": 0,
+                    "utm_source": "",
+                    "utm_medium": "",
+                    "traffic_source": "unknown",
+                    "device_type": "",
                     "visited_price_page": False,
                     "visited_program_page": False,
                     "visited_booking_page": False,
                     "clicked_booking_button": False,
                 },
             )
+            row["sessions_count"] += visits
+            row["pageviews"] += visits
             if not start_url:
                 continue
 
-            if _bool_keyword(start_url, ["price", "pricing", "цена", "стоим"]):
-                row["visited_price_page"] = True
-            if _bool_keyword(start_url, ["program", "программ", "schedule", "camp-program"]):
-                row["visited_program_page"] = True
-            if _bool_keyword(start_url, ["book", "booking", "reserve", "брон", "запис"]):
-                row["visited_booking_page"] = True
-            if _bool_keyword(start_url, ["book=1", "booking_click", "utm_content=book", "cta=book"]):
-                row["clicked_booking_button"] = True
+            url_signals = _extract_url_signals(start_url_raw)
+            row["visited_price_page"] = bool(row["visited_price_page"]) or bool(url_signals["visited_price_page"])
+            row["visited_program_page"] = bool(row["visited_program_page"]) or bool(url_signals["visited_program_page"])
+            row["visited_booking_page"] = bool(row["visited_booking_page"]) or bool(url_signals["visited_booking_page"])
+            row["clicked_booking_button"] = bool(row["clicked_booking_button"]) or bool(url_signals["clicked_booking_button"])
+
+            if not row["utm_source"] and url_signals["utm_source"]:
+                row["utm_source"] = str(url_signals["utm_source"])
+            if not row["utm_medium"] and url_signals["utm_medium"]:
+                row["utm_medium"] = str(url_signals["utm_medium"])
+            row["traffic_source"] = _guess_traffic_source(str(row["utm_source"]), str(row["utm_medium"]))
 
         pages += 1
         fetched += len(rows)
@@ -221,11 +280,58 @@ def _load_client_page_signals(
         signals,
         {
             "ok": True,
+            "source": "metrica_stat_api",
+            "query": query_info,
             "fetched": fetched,
             "pages": pages,
             "total_rows_reported": total_rows,
+            "clients": len(signals),
         },
     )
+
+
+def _build_rows_from_page_signals(
+    page_signals: dict[str, dict[str, Any]],
+    first_seen_at: datetime,
+    last_seen_at: datetime,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for client_id, signal in page_signals.items():
+        sessions_count = max(1, _to_int(float(signal.get("sessions_count") or 0.0)))
+        pageviews = max(sessions_count, _to_int(float(signal.get("pageviews") or 0.0)))
+        total_time_sec = max(30, sessions_count * 75)
+        return_visitor = sessions_count > 1
+        is_bounce = sessions_count <= 1 and pageviews <= 1
+        scroll_70 = (
+            bool(signal.get("visited_program_page"))
+            or bool(signal.get("visited_price_page"))
+            or bool(signal.get("visited_booking_page"))
+            or pageviews >= 4
+            or sessions_count > 1
+        )
+
+        rows.append(
+            {
+                "visitor_id": client_id,
+                "first_seen_at": first_seen_at,
+                "last_seen_at": last_seen_at,
+                "sessions_count": sessions_count,
+                "total_time_sec": total_time_sec,
+                "pageviews": pageviews,
+                "visited_price_page": bool(signal.get("visited_price_page")),
+                "visited_program_page": bool(signal.get("visited_program_page")),
+                "visited_booking_page": bool(signal.get("visited_booking_page")),
+                "clicked_booking_button": bool(signal.get("clicked_booking_button")),
+                "scroll_70": scroll_70,
+                "return_visitor": return_visitor,
+                "traffic_source": str(signal.get("traffic_source") or "unknown"),
+                "utm_source": str(signal.get("utm_source") or ""),
+                "utm_medium": str(signal.get("utm_medium") or ""),
+                "device_type": str(signal.get("device_type") or ""),
+                "is_bounce": is_bounce,
+            }
+        )
+    return rows
 
 
 def build_scoring_features(
@@ -267,9 +373,27 @@ def build_scoring_features(
     skipped_no_id = 0
     pages = 0
     total_rows: int | None = None
-    page_signals: dict[str, dict[str, bool]] = {}
+    page_signals: dict[str, dict[str, Any]] = {}
     page_signal_status: dict[str, Any] = {"ok": False, "reason": "not_started"}
     cleared_rows = 0
+    primary_query = {
+        "dimensions": [
+            "ym:s:clientID",
+            "ym:s:lastTrafficSource",
+            "ym:s:lastAdvEngine",
+            "ym:s:lastUTMSource",
+            "ym:s:lastUTMMedium",
+            "ym:s:deviceCategory",
+            "ym:s:lastUTMCampaign",
+        ],
+        "metrics": [
+            "ym:s:visits",
+            "ym:s:pageDepth",
+            "ym:s:avgVisitDurationSeconds",
+            "ym:s:bounceRate",
+        ],
+        "filters": "",
+    }
 
     if replace:
         try:
@@ -281,6 +405,7 @@ def build_scoring_features(
                 "reason": f"failed to clear stg_metrica_visitors_features: {exc}",
                 "fetched": 0,
                 "upserted": 0,
+                "primary_query": primary_query,
             }
 
     try:
@@ -302,25 +427,8 @@ def build_scoring_features(
             "ids": counter_id,
             "date1": date_from.isoformat(),
             "date2": date_to.isoformat(),
-            "dimensions": ",".join(
-                [
-                    "ym:s:clientID",
-                    "ym:s:lastTrafficSource",
-                    "ym:s:lastAdvEngine",
-                    "ym:s:lastUTMSource",
-                    "ym:s:lastUTMMedium",
-                    "ym:s:deviceCategory",
-                    "ym:s:lastUTMCampaign",
-                ]
-            ),
-            "metrics": ",".join(
-                [
-                    "ym:s:visits",
-                    "ym:s:pageDepth",
-                    "ym:s:avgVisitDurationSeconds",
-                    "ym:s:bounceRate",
-                ]
-            ),
+            "dimensions": ",".join(primary_query["dimensions"]),
+            "metrics": ",".join(primary_query["metrics"]),
             "accuracy": "full",
             "limit": page_size,
             "offset": offset,
@@ -424,10 +532,23 @@ def build_scoring_features(
         if total_rows and fetched >= min(total_rows, safe_max_rows):
             break
 
+    source_mode = "primary_query"
+    fallback_rows_count = 0
+    if upserted == 0 and page_signals:
+        fallback_rows = _build_rows_from_page_signals(
+            page_signals=page_signals,
+            first_seen_at=first_seen_at,
+            last_seen_at=last_seen_at,
+        )
+        fallback_rows_count = len(fallback_rows)
+        upserted = _upsert_feature_rows(fallback_rows)
+        source_mode = "page_signals_fallback"
+
     return {
         "ok": True,
         "skipped": False,
         "source": "metrica_stat_api",
+        "source_mode": source_mode,
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
         "fetched": fetched,
@@ -437,6 +558,18 @@ def build_scoring_features(
         "pages": pages,
         "skipped_no_id": skipped_no_id,
         "total_rows_reported": total_rows,
+        "primary_query": primary_query,
+        "primary_query_status": {
+            "fetched": fetched,
+            "pages": pages,
+            "total_rows_reported": total_rows,
+            "empty_reason": (
+                "primary visitor query returned 0 rows; using page_signals fallback"
+                if fetched == 0 and len(page_signals) > 0
+                else ""
+            ),
+        },
         "page_signal_status": page_signal_status,
         "page_signals_clients": len(page_signals),
+        "page_signals_rows_built": fallback_rows_count,
     }
