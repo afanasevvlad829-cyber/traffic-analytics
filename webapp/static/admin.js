@@ -1188,6 +1188,7 @@ Baseline (если уже есть реакция):
 Что ожидаем:
 - CTR(STR): >= ${esc(numText(row.kpi_hypothesis?.expected?.ctr_str_min_pct, 2))}% (target ${esc(numText(row.kpi_hypothesis?.expected?.ctr_str_target_pct, 2))}%)
 - CR клик->заявка: >= ${esc(numText(row.kpi_hypothesis?.expected?.click_to_lead_min_pct ?? row.kpi_hypothesis?.expected?.cvr_to_lead_min_pct, 2))}% (target ${esc(numText(row.kpi_hypothesis?.expected?.click_to_lead_target_pct ?? row.kpi_hypothesis?.expected?.cvr_to_lead_target_pct, 2))}%)
+- Факт CR клик->заявка (${esc(row.kpi_hypothesis?.expected?.reference_window_days ?? row.conversion_reference?.selected_window_days ?? '-') }д): ${esc(numText(row.kpi_hypothesis?.expected?.click_to_lead_actual_pct, 2))}% (${esc(row.kpi_hypothesis?.expected?.click_to_lead_basis || 'model')})
 - Цена клика (CPC): target <= ${esc(numText(row.kpi_hypothesis?.expected?.target_cpc_rub, 2))} ₽ (max ${esc(numText(row.kpi_hypothesis?.expected?.max_cpc_rub ?? row.kpi_hypothesis?.expected?.avg_cpc_max_rub, 2))} ₽)
 - Цена заявки (CPL): target <= ${esc(numText(row.kpi_hypothesis?.expected?.target_cpl_rub, 2))} ₽ (max ${esc(numText(row.kpi_hypothesis?.expected?.max_cpl_rub, 2))} ₽)
 - Цена оплаты (CAC): target <= ${esc(numText(row.kpi_hypothesis?.expected?.target_cac_pay_rub ?? row.kpi_hypothesis?.expected?.target_cpa_rub, 2))} ₽ (max ${esc(numText(row.kpi_hypothesis?.expected?.max_cac_pay_rub, 2))} ₽)

@@ -31,6 +31,8 @@ def build_kpi_hypothesis(
     short_reason: str,
     traffic_source: str,
     baseline: dict[str, Any] | None = None,
+    click_to_lead_actual_pct: float | None = None,
+    reference_window_days: int | None = None,
 ) -> dict[str, Any]:
     s = (segment or "").lower().strip()
     src = _source_ru(traffic_source)
@@ -48,26 +50,50 @@ def build_kpi_hypothesis(
     margin_rub = round(avg_check_rub * margin_pct / 100.0, 2)
     max_marketing_share_of_margin_pct = round((max_cac_pay_rub / margin_rub) * 100.0, 2) if margin_rub > 0 else 0.0
 
+    actual_click_to_lead = None
+    if click_to_lead_actual_pct is not None:
+        try:
+            parsed = float(click_to_lead_actual_pct)
+            if parsed > 0:
+                actual_click_to_lead = parsed
+        except Exception:  # noqa: BLE001
+            actual_click_to_lead = None
+
+    if actual_click_to_lead is not None:
+        if s == "hot":
+            click_to_lead_target_pct = max(0.8, actual_click_to_lead * 1.25)
+            click_to_lead_min_pct = max(0.6, actual_click_to_lead * 1.05)
+        elif s == "warm":
+            click_to_lead_target_pct = max(0.7, actual_click_to_lead * 1.00)
+            click_to_lead_min_pct = max(0.5, actual_click_to_lead * 0.85)
+        else:
+            click_to_lead_target_pct = max(0.5, actual_click_to_lead * 0.75)
+            click_to_lead_min_pct = max(0.4, actual_click_to_lead * 0.60)
+    else:
+        if s == "hot":
+            click_to_lead_min_pct = 8.0
+            click_to_lead_target_pct = 10.0
+        elif s == "warm":
+            click_to_lead_min_pct = 4.0
+            click_to_lead_target_pct = 5.5
+        else:
+            click_to_lead_min_pct = 1.5
+            click_to_lead_target_pct = 2.5
+
     if s == "hot":
         objective = "Дожим до заявки/бронирования"
         ctr_str_min_pct = 3.2
         ctr_str_target_pct = 4.0
-        click_to_lead_min_pct = 8.0
-        click_to_lead_target_pct = 10.0
         sample_gate = {"min_impressions": 3000, "min_clicks": 80}
     elif s == "warm":
         objective = "Перевод в заявку через контент/доверие"
         ctr_str_min_pct = 2.4
         ctr_str_target_pct = 3.2
-        click_to_lead_min_pct = 4.0
-        click_to_lead_target_pct = 5.5
         sample_gate = {"min_impressions": 4000, "min_clicks": 100}
     else:
         objective = "Прогрев и квалификация аудитории"
         ctr_str_min_pct = 1.6
         ctr_str_target_pct = 2.2
-        click_to_lead_min_pct = 1.5
-        click_to_lead_target_pct = 2.5
         sample_gate = {"min_impressions": 5000, "min_clicks": 120}
 
     # Формулы:
@@ -83,6 +109,9 @@ def build_kpi_hypothesis(
         "ctr_str_target_pct": ctr_str_target_pct,
         "click_to_lead_min_pct": click_to_lead_min_pct,
         "click_to_lead_target_pct": click_to_lead_target_pct,
+        "click_to_lead_actual_pct": round(actual_click_to_lead, 2) if actual_click_to_lead is not None else None,
+        "click_to_lead_basis": "real" if actual_click_to_lead is not None else "model",
+        "reference_window_days": int(reference_window_days or 0) if reference_window_days else None,
         # backward compatibility for older UI blocks
         "cvr_to_lead_min_pct": click_to_lead_min_pct,
         "cvr_to_lead_target_pct": click_to_lead_target_pct,
@@ -104,6 +133,9 @@ def build_kpi_hypothesis(
             "click_to_lead_target_pct": 10.0,
             "cvr_to_lead_target_pct": 10.0,
         }
+        if actual_click_to_lead is not None:
+            expected["click_to_lead_target_pct"] = click_to_lead_target_pct
+            expected["cvr_to_lead_target_pct"] = click_to_lead_target_pct
         success_rule = (
             f"Успех: CPL <= {target_cpl_rub:.0f} ₽ и CAC оплаты <= {target_cac_pay_rub:.0f} ₽, "
             f"при CR клик->заявка >= {expected['click_to_lead_target_pct']:.1f}% и CTR(STR) >= {ctr_str_target_pct:.1f}%."
@@ -160,8 +192,9 @@ def build_kpi_hypothesis(
         "secondary_metrics": secondary_metrics,
         "success_rule": success_rule,
         "data_gap_note": (
-            "CR клик->заявка пока модельный (по сегментам). "
-            "После расчета факта из Метрики/CRM обновить target/max автоматически."
+            f"CR клик->заявка взят из факта за {int(reference_window_days)} дней."
+            if actual_click_to_lead is not None and reference_window_days
+            else "CR клик->заявка пока модельный (по сегментам). После расчета факта из Метрики/CRM обновить target/max автоматически."
         ),
     }
 

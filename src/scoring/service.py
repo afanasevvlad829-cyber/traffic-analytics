@@ -928,6 +928,11 @@ class ScoringService:
                 "error": plan.get("error", "activation plan is not ready"),
             }
 
+        lead_ref_30 = self._fetch_click_to_lead_reference(days=30)
+        lead_ref_90 = self._fetch_click_to_lead_reference(days=90)
+        selected_ref = lead_ref_30 if safe_days <= 45 else lead_ref_90
+        selected_click_to_lead = selected_ref.get("click_to_lead_pct") if selected_ref.get("ready", False) else None
+
         reaction = self.get_activation_reaction(days=min(safe_days, 90), limit=200)
         reaction_items = reaction.get("items", []) if reaction.get("ready", False) else []
         reaction_by_tag = {str(i.get("direct_tag") or "").strip().lower(): i for i in reaction_items if i.get("direct_tag")}
@@ -965,6 +970,8 @@ class ScoringService:
                 short_reason=reason_hint,
                 traffic_source=source_hint,
                 baseline=baseline_row,
+                click_to_lead_actual_pct=selected_click_to_lead,
+                reference_window_days=int(selected_ref.get("days") or safe_days),
             )
             out.append(
                 {
@@ -982,6 +989,17 @@ class ScoringService:
                     "strategy_priority": mapping_row.get("strategy_priority"),
                     "goal_id": mapping_row.get("goal_id"),
                     "performance_baseline": baseline_row,
+                    "conversion_reference": {
+                        "click_to_lead_pct_30d": lead_ref_30.get("click_to_lead_pct"),
+                        "click_to_lead_pct_90d": lead_ref_90.get("click_to_lead_pct"),
+                        "selected_window_days": int(selected_ref.get("days") or safe_days),
+                        "selected_click_to_lead_pct": selected_click_to_lead,
+                        "selected_clicks": selected_ref.get("clicks"),
+                        "selected_leads": selected_ref.get("lead_sessions"),
+                        "source_mode": selected_ref.get("source_mode"),
+                        "primary_goal_ids": selected_ref.get("primary_goal_ids") or [],
+                        "assist_goal_ids": selected_ref.get("assist_goal_ids") or [],
+                    },
                     "kpi_hypothesis": kpi_hypothesis,
                     "variants": variants_rows,
                 }
@@ -995,6 +1013,176 @@ class ScoringService:
             "variants": safe_variants,
             "count": len(out),
             "items": out,
+        }
+
+    @staticmethod
+    def _goal_ids_from_env(name: str, defaults: list[int]) -> list[int]:
+        raw = str(os.getenv(name, "")).strip()
+        if not raw:
+            return defaults
+        out: list[int] = []
+        for token in raw.replace(";", ",").replace(" ", ",").split(","):
+            t = token.strip()
+            if t.isdigit():
+                out.append(int(t))
+        return out or defaults
+
+    def _fetch_click_to_lead_reference(self, days: int) -> dict[str, Any]:
+        safe_days = max(1, min(int(days or 30), 365))
+        primary_goal_ids = self._goal_ids_from_env("SCORING_LEAD_PRIMARY_GOAL_IDS", [437747318])
+        assist_goal_ids = self._goal_ids_from_env(
+            "SCORING_LEAD_ASSIST_GOAL_IDS",
+            [519273838, 519273814, 327368948, 327368949],
+        )
+        goal_ids = [*primary_goal_ids, *assist_goal_ids]
+        seen: set[int] = set()
+        goal_ids = [gid for gid in goal_ids if not (gid in seen or seen.add(gid))]
+        if not goal_ids:
+            return {
+                "ready": False,
+                "days": safe_days,
+                "error": "goal ids are not configured",
+                "click_to_lead_pct": None,
+                "clicks": 0,
+                "lead_sessions": 0,
+                "primary_goal_ids": primary_goal_ids,
+                "assist_goal_ids": assist_goal_ids,
+            }
+
+        clicks = 0
+        conn = get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    select coalesce(sum(clicks), 0)::bigint as clicks
+                    from stg_direct_campaign_daily
+                    where date >= current_date - (%s::int - 1)
+                    """,
+                    (safe_days,),
+                )
+                clicks = int((cur.fetchone() or {}).get("clicks") or 0)
+        except Exception as exc:  # noqa: BLE001
+            if self._is_undefined_table_error(exc):
+                return {
+                    "ready": False,
+                    "days": safe_days,
+                    "error": "stg_direct_campaign_daily is missing",
+                    "click_to_lead_pct": None,
+                    "clicks": 0,
+                    "lead_sessions": 0,
+                    "primary_goal_ids": primary_goal_ids,
+                    "assist_goal_ids": assist_goal_ids,
+                }
+            return {
+                "ready": False,
+                "days": safe_days,
+                "error": str(exc),
+                "click_to_lead_pct": None,
+                "clicks": 0,
+                "lead_sessions": 0,
+                "primary_goal_ids": primary_goal_ids,
+                "assist_goal_ids": assist_goal_ids,
+            }
+        finally:
+            conn.close()
+
+        token = str(Settings.METRICA_TOKEN or "").strip()
+        counter_id = str(Settings.METRICA_COUNTER_ID or "").strip()
+        if not token or not counter_id:
+            return {
+                "ready": False,
+                "days": safe_days,
+                "error": "METRICA_TOKEN or METRICA_COUNTER_ID is missing",
+                "click_to_lead_pct": None,
+                "clicks": clicks,
+                "lead_sessions": 0,
+                "primary_goal_ids": primary_goal_ids,
+                "assist_goal_ids": assist_goal_ids,
+            }
+
+        metrics = ",".join(f"ym:s:goal{gid}reaches" for gid in goal_ids)
+        params = {
+            "ids": counter_id,
+            "date1": f"{safe_days}daysAgo",
+            "date2": "yesterday",
+            "metrics": metrics,
+            "dimensions": "ym:s:lastTrafficSource",
+            "accuracy": "full",
+            "limit": "100000",
+        }
+        headers = {"Authorization": f"OAuth {token}"}
+
+        try:
+            resp = requests.get("https://api-metrika.yandex.net/stat/v1/data", params=params, headers=headers, timeout=60)
+            resp.raise_for_status()
+            payload = resp.json()
+            rows = payload.get("data", []) or []
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ready": False,
+                "days": safe_days,
+                "error": str(exc),
+                "click_to_lead_pct": None,
+                "clicks": clicks,
+                "lead_sessions": 0,
+                "primary_goal_ids": primary_goal_ids,
+                "assist_goal_ids": assist_goal_ids,
+            }
+
+        paid_sources = {
+            "ad",
+            "paid",
+            "cpc",
+            "реклама",
+            "переходы по рекламе",
+            "ads",
+        }
+
+        def _row_sum(row: dict[str, Any]) -> dict[int, int]:
+            mets = row.get("metrics") or []
+            out_local: dict[int, int] = {}
+            for idx, gid in enumerate(goal_ids):
+                val = mets[idx] if idx < len(mets) else 0
+                out_local[gid] = int(float(val)) if val is not None else 0
+            return out_local
+
+        totals_paid: dict[int, int] = {gid: 0 for gid in goal_ids}
+        totals_all: dict[int, int] = {gid: 0 for gid in goal_ids}
+        paid_rows = 0
+
+        for row in rows:
+            dims = row.get("dimensions") or []
+            source_name = str((dims[0] or {}).get("name") or "").strip().lower() if dims else ""
+            row_vals = _row_sum(row)
+            for gid in goal_ids:
+                totals_all[gid] += int(row_vals.get(gid, 0))
+            if source_name in paid_sources:
+                paid_rows += 1
+                for gid in goal_ids:
+                    totals_paid[gid] += int(row_vals.get(gid, 0))
+
+        source_mode = "paid_source"
+        selected = totals_paid if paid_rows > 0 else totals_all
+        if paid_rows == 0:
+            source_mode = "all_sources_fallback"
+
+        primary_leads = int(sum(int(selected.get(gid, 0)) for gid in primary_goal_ids))
+        assist_leads = int(sum(int(selected.get(gid, 0)) for gid in assist_goal_ids))
+        lead_sessions = primary_leads if primary_leads > 0 else assist_leads
+        click_to_lead_pct = round((lead_sessions / clicks) * 100, 4) if clicks > 0 and lead_sessions > 0 else None
+
+        return {
+            "ready": True,
+            "days": safe_days,
+            "source_mode": source_mode,
+            "clicks": clicks,
+            "primary_leads": primary_leads,
+            "assist_leads": assist_leads,
+            "lead_sessions": lead_sessions,
+            "click_to_lead_pct": click_to_lead_pct,
+            "primary_goal_ids": primary_goal_ids,
+            "assist_goal_ids": assist_goal_ids,
         }
 
     def generate_ad_template_banners(
