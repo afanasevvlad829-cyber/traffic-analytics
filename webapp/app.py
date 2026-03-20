@@ -16,7 +16,7 @@ from src.scoring.service import (
     get_scoring_visitors,
     rebuild_scoring_v1,
 )
-from src.scoring.feature_sync import debug_unknown_attribution_examples
+from src.scoring.feature_sync import debug_unknown_attribution_examples, probe_metrica_source_queries
 from src.scoring.report import send_scoring_report
 
 BASE_DIR = Path("/home/kv145/traffic-analytics")
@@ -395,6 +395,16 @@ def api_scoring_debug_unknown_attribution(limit: int = 20, days: int = 30):
         return debug_unknown_attribution_examples(days=safe_days, limit=safe_limit)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"failed to collect unknown attribution debug: {exc}")
+
+
+@app.get("/api/scoring/debug/metrica-source-probe")
+def api_scoring_debug_metrica_source_probe(days: int = 7, sample_limit: int = 20):
+    safe_days = max(1, min(days, 30))
+    safe_limit = max(1, min(sample_limit, 20))
+    try:
+        return probe_metrica_source_queries(days=safe_days, sample_limit=safe_limit)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed metrica source probe: {exc}")
 
 
 @app.get("/api/scoring/visitor/{visitor_id}")

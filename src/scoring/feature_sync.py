@@ -908,3 +908,120 @@ def debug_unknown_attribution_examples(
         "fetched_rows": fetched,
         "pages": pages,
     }
+
+
+def probe_metrica_source_queries(days: int = 7, sample_limit: int = 20) -> dict[str, Any]:
+    token = (Settings.METRICA_TOKEN or "").strip()
+    counter_id = (Settings.METRICA_COUNTER_ID or "").strip()
+    if not token or not counter_id:
+        return {
+            "ok": False,
+            "reason": "METRICA_TOKEN or METRICA_COUNTER_ID is missing",
+            "feature_sync_version": FEATURE_SYNC_VERSION,
+            "attribution_logic_version": ATTRIBUTION_LOGIC_VERSION,
+            "probes": [],
+        }
+
+    safe_days = max(1, min(int(days or 7), 30))
+    safe_limit = max(1, min(int(sample_limit or 20), 20))
+    date_to = date.today() - timedelta(days=1)
+    date_from = date_to - timedelta(days=safe_days - 1)
+    headers = {"Authorization": f"OAuth {token}"}
+
+    probes = [
+        {
+            "name": "primary_current",
+            "dimensions": [
+                "ym:s:clientID",
+                "ym:s:lastTrafficSource",
+                "ym:s:lastAdvEngine",
+                "ym:s:lastUTMSource",
+                "ym:s:lastUTMMedium",
+                "ym:s:deviceCategory",
+                "ym:s:lastUTMCampaign",
+            ],
+            "metrics": ["ym:s:visits", "ym:s:pageDepth"],
+        },
+        {
+            "name": "fallback_current",
+            "dimensions": ["ym:s:clientID", "ym:s:startURL"],
+            "metrics": ["ym:s:visits"],
+        },
+        {
+            "name": "client_starturl_with_last_source",
+            "dimensions": [
+                "ym:s:clientID",
+                "ym:s:startURL",
+                "ym:s:lastTrafficSource",
+                "ym:s:lastAdvEngine",
+                "ym:s:lastUTMSource",
+                "ym:s:lastUTMMedium",
+            ],
+            "metrics": ["ym:s:visits"],
+        },
+        {
+            "name": "client_starturl_with_visit_source",
+            "dimensions": [
+                "ym:s:clientID",
+                "ym:s:startURL",
+                "ym:s:trafficSource",
+                "ym:s:sourceEngine",
+                "ym:s:UTMSource",
+                "ym:s:UTMMedium",
+            ],
+            "metrics": ["ym:s:visits"],
+        },
+    ]
+
+    out: list[dict[str, Any]] = []
+    for probe in probes:
+        params = {
+            "ids": counter_id,
+            "date1": date_from.isoformat(),
+            "date2": date_to.isoformat(),
+            "dimensions": ",".join(probe["dimensions"]),
+            "metrics": ",".join(probe["metrics"]),
+            "accuracy": "full",
+            "limit": safe_limit,
+            "offset": 1,
+        }
+        try:
+            response = requests.get(METRICA_URL, params=params, headers=headers, timeout=90)
+            response.raise_for_status()
+            payload = response.json()
+            rows = payload.get("data") or []
+            sample_rows = []
+            for item in rows[:safe_limit]:
+                dims = [str((d or {}).get("name") or "") for d in (item.get("dimensions") or [])]
+                metrics = item.get("metrics") or []
+                sample_rows.append({"dimensions": dims, "metrics": metrics})
+            out.append(
+                {
+                    "name": probe["name"],
+                    "dimensions": probe["dimensions"],
+                    "metrics": probe["metrics"],
+                    "ok": True,
+                    "total_rows_reported": int(payload.get("total_rows") or 0),
+                    "sample_rows": sample_rows,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            out.append(
+                {
+                    "name": probe["name"],
+                    "dimensions": probe["dimensions"],
+                    "metrics": probe["metrics"],
+                    "ok": False,
+                    "error": str(exc),
+                    "sample_rows": [],
+                }
+            )
+
+    return {
+        "ok": True,
+        "feature_sync_version": FEATURE_SYNC_VERSION,
+        "attribution_logic_version": ATTRIBUTION_LOGIC_VERSION,
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+        "probes": out,
+    }
