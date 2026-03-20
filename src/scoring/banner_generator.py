@@ -46,7 +46,7 @@ def _image_provider() -> str:
 
 def _openrouter_model() -> str:
     return str(
-        os.getenv("OPENROUTER_IMAGE_MODEL", "google/gemini-2.5-flash-image-preview")
+        os.getenv("OPENROUTER_IMAGE_MODEL", "google/gemini-2.5-flash-image")
     ).strip()
 
 

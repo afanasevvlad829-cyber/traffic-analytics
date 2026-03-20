@@ -244,7 +244,7 @@ Fallback нужен, чтобы модуль работал даже до поя
 OpenRouter fallback/режим:
 
 - `OPENROUTER_API_KEY` — ключ OpenRouter (или fallback на `OPENAI_API_KEY`/`OPENAI_KEY`).
-- `OPENROUTER_IMAGE_MODEL` — по умолчанию `google/gemini-2.5-flash-image-preview`.
+- `OPENROUTER_IMAGE_MODEL` — по умолчанию `google/gemini-2.5-flash-image` (дешёвый baseline для баннеров).
 - `OPENROUTER_BASE_URL` — по умолчанию `https://openrouter.ai/api/v1`.
 - `OPENROUTER_HTTP_REFERER` и `OPENROUTER_APP_TITLE` — опционально для атрибуции OpenRouter.
 
