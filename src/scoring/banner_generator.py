@@ -72,6 +72,31 @@ def _download_binary(url: str, timeout: int = 120) -> bytes:
     return resp.content
 
 
+def _extract_http_error(resp: requests.Response) -> str:
+    status = resp.status_code
+    message = ""
+    code = ""
+    err_type = ""
+    try:
+        payload = resp.json()
+        err = payload.get("error") if isinstance(payload, dict) else None
+        if isinstance(err, dict):
+            message = str(err.get("message") or "").strip()
+            code = str(err.get("code") or "").strip()
+            err_type = str(err.get("type") or "").strip()
+    except Exception:  # noqa: BLE001
+        message = ""
+
+    parts = [f"status={status}"]
+    if err_type:
+        parts.append(f"type={err_type}")
+    if code:
+        parts.append(f"code={code}")
+    if message:
+        parts.append(f"message={message}")
+    return " | ".join(parts)
+
+
 def _write_image_bytes(
     *,
     image_bytes: bytes,
@@ -107,11 +132,18 @@ def generate_template_banners(
     output_format: str = "png",
     timeout: int = 180,
 ) -> dict[str, Any]:
-    token = (
-        str(os.getenv("OPENAI_IMAGE_API_KEY", "")).strip()
-        or str(os.getenv("OPENAI_API_KEY", "")).strip()
-        or str(os.getenv("OPENAI_KEY", "")).strip()
-    )
+    key_source = "missing"
+    token = str(os.getenv("OPENAI_IMAGE_API_KEY", "")).strip()
+    if token:
+        key_source = "OPENAI_IMAGE_API_KEY"
+    else:
+        token = str(os.getenv("OPENAI_API_KEY", "")).strip()
+        if token:
+            key_source = "OPENAI_API_KEY"
+        else:
+            token = str(os.getenv("OPENAI_KEY", "")).strip()
+            if token:
+                key_source = "OPENAI_KEY"
     if not token:
         return {
             "ok": False,
@@ -127,6 +159,9 @@ def generate_template_banners(
     safe_output_format = str(output_format or "png").strip().lower()
     if safe_output_format not in {"png", "jpeg", "webp"}:
         safe_output_format = "png"
+    model_candidates = [safe_model]
+    if safe_model != "gpt-image-1":
+        model_candidates.append("gpt-image-1")
 
     base_url = _openai_base_url()
     endpoint = f"{base_url}/images/generations"
@@ -153,6 +188,7 @@ def generate_template_banners(
 
     generated: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
+    model_used: str | None = None
 
     for variant in variants:
         v_key = str(variant.get("variant_key") or "variant")
@@ -164,57 +200,84 @@ def generate_template_banners(
             short_reason=short_reason,
             source_hint=source_hint,
         )
-        payload = {
-            "model": safe_model,
-            "prompt": prompt,
-            "n": safe_n,
-            "size": safe_size,
-            "quality": safe_quality,
-            "output_format": safe_output_format,
-        }
-        try:
-            resp = requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
-            resp.raise_for_status()
-            data = resp.json()
-            rows = data.get("data") or []
-            if not rows:
+        last_error = ""
+        rows: list[dict[str, Any]] = []
+        for model_name in model_candidates:
+            payload = {
+                "model": model_name,
+                "prompt": prompt,
+                "n": safe_n,
+                "size": safe_size,
+                "quality": safe_quality,
+                "output_format": safe_output_format,
+            }
+            try:
+                resp = requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
+                if resp.status_code >= 400:
+                    last_error = f"model={model_name} | {_extract_http_error(resp)}"
+                    # Fallback model probe for model-level restrictions.
+                    if model_name != model_candidates[-1]:
+                        continue
+                    raise requests.HTTPError(last_error)
+
+                data = resp.json()
+                rows = data.get("data") or []
+                model_used = model_name
+                break
+            except Exception as exc:  # noqa: BLE001
+                if not last_error:
+                    last_error = f"model={model_name} | {exc}"
+                if model_name == model_candidates[-1]:
+                    failed.append(
+                        {
+                            "variant_key": v_key,
+                            "error": (
+                                f"{last_error} | hint=check OPENAI_IMAGE_API_KEY permissions for Image API"
+                            ),
+                        }
+                    )
+
+        if not rows:
+            if not any((f.get("variant_key") == v_key) for f in failed):
                 failed.append({"variant_key": v_key, "error": "empty response data"})
+            continue
+
+        for idx, row in enumerate(rows, start=1):
+            img_bytes: bytes | None = None
+            if row.get("b64_json"):
+                img_bytes = base64.b64decode(row["b64_json"])
+            elif row.get("url"):
+                img_bytes = _download_binary(str(row["url"]), timeout=timeout)
+
+            if not img_bytes:
+                failed.append({"variant_key": v_key, "idx": idx, "error": "no image payload"})
                 continue
 
-            for idx, row in enumerate(rows, start=1):
-                img_bytes: bytes | None = None
-                if row.get("b64_json"):
-                    img_bytes = base64.b64decode(row["b64_json"])
-                elif row.get("url"):
-                    img_bytes = _download_binary(str(row["url"]), timeout=timeout)
-
-                if not img_bytes:
-                    failed.append({"variant_key": v_key, "idx": idx, "error": "no image payload"})
-                    continue
-
-                file_meta = _write_image_bytes(
-                    image_bytes=img_bytes,
-                    cohort_name=cohort_name,
-                    variant_key=v_key,
-                    idx=idx,
-                    extension="jpg" if safe_output_format == "jpeg" else safe_output_format,
-                )
-                generated.append(
-                    {
-                        "cohort_name": cohort_name,
-                        "segment": segment,
-                        "variant_key": v_key,
-                        "headline": variant.get("headline"),
-                        "cta": variant.get("cta"),
-                        "prompt_excerpt": prompt[:280],
-                        **file_meta,
-                    }
-                )
-        except Exception as exc:  # noqa: BLE001
-            failed.append({"variant_key": v_key, "error": str(exc)})
+            file_meta = _write_image_bytes(
+                image_bytes=img_bytes,
+                cohort_name=cohort_name,
+                variant_key=v_key,
+                idx=idx,
+                extension="jpg" if safe_output_format == "jpeg" else safe_output_format,
+            )
+            generated.append(
+                {
+                    "cohort_name": cohort_name,
+                    "segment": segment,
+                    "variant_key": v_key,
+                    "headline": variant.get("headline"),
+                    "cta": variant.get("cta"),
+                    "prompt_excerpt": prompt[:280],
+                    **file_meta,
+                }
+            )
 
     return {
         "ok": len(generated) > 0,
+        "base_url": base_url,
+        "auth_key_source": key_source,
+        "model_requested": safe_model,
+        "model_used": model_used,
         "model": safe_model,
         "size": safe_size,
         "quality": safe_quality,

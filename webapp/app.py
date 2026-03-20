@@ -486,7 +486,15 @@ def api_scoring_generate_banners(payload: ScoringAdBannerGenerateIn):
     )
     if not result.get("ok", False):
         detail = result.get("error") or "banner generation failed"
-        status = 400 if "missing" in detail.lower() or "not found" in detail.lower() else 500
+        detail_l = detail.lower()
+        if "status=401" in detail_l or "unauthorized" in detail_l:
+            status = 401
+        elif "status=403" in detail_l or "forbidden" in detail_l:
+            status = 403
+        elif "missing" in detail_l or "not found" in detail_l:
+            status = 400
+        else:
+            status = 500
         raise HTTPException(status_code=status, detail=detail)
     return result
 
