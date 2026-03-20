@@ -481,6 +481,48 @@ textarea.big{
   background:#0f1420;
 }
 
+.banner-progress{
+  display:grid;
+  gap:8px;
+  padding:10px 12px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--panel-2);
+}
+
+.banner-progress-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+}
+
+.banner-progress-track{
+  width:100%;
+  height:10px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  background:#0f1420;
+  overflow:hidden;
+}
+
+.banner-progress-fill{
+  height:100%;
+  width:0%;
+  border-radius:999px;
+  background:linear-gradient(90deg,#3b82f6 0%, #60a5fa 100%);
+  transition:width .35s ease;
+}
+
+.btn:disabled{
+  opacity:.65;
+  cursor:not-allowed;
+}
+
+.btn.btn-loading{
+  cursor:wait;
+}
+
 .tabulator .tabulator-row.tabulator-selected{
   background:rgba(59,130,246,.18);
 }

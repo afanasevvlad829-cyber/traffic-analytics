@@ -24,6 +24,7 @@ let SCORING_FILTERS = { segment: 'all', source: '', limit: 100 };
 let SCORING_TABLE = null;
 let SCORING_TIMESERIES_CHART = null;
 let SCORING_DISTRIBUTION_CHART = null;
+const BANNER_GENERATION_JOBS = {};
 
 function normalizeScoringLimit(value){
   const n = Number(value);
@@ -1146,7 +1147,7 @@ function renderScoringTemplates(){
           </div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
             <div class="small muted">Тег: <span class="badge">${esc(row.direct_tag || '-')}</span></div>
-            <button class="btn primary" onclick="generateScoringBanners(${JSON.stringify(row.cohort_name || '')})">
+            <button id="banner-generate-btn-${safeDomId(row.cohort_name || '')}" class="btn primary" onclick="generateScoringBanners(${JSON.stringify(row.cohort_name || '')})">
               Сгенерировать баннеры
             </button>
           </div>
@@ -1377,15 +1378,70 @@ async function applyScoringTemplateFilters(){
   await loadScoringDataAndRender();
 }
 
+function setBannerGenerateButtonState(cohortName, busy=false, busyLabel='Генерация...'){
+  const safeId = safeDomId(cohortName || '');
+  const button = document.getElementById(`banner-generate-btn-${safeId}`);
+  if (!button) return;
+  if (!button.dataset.defaultText) {
+    button.dataset.defaultText = button.textContent || 'Сгенерировать баннеры';
+  }
+  button.disabled = Boolean(busy);
+  button.classList.toggle('btn-loading', Boolean(busy));
+  button.textContent = busy ? String(busyLabel || 'Генерация...') : button.dataset.defaultText;
+}
+
+function renderBannerProgressState(container, safeId, percent, message){
+  const pct = Math.max(0, Math.min(100, Number(percent || 0)));
+  container.innerHTML = `
+    <div class="banner-progress">
+      <div class="banner-progress-head">
+        <span class="small">Генерация баннера</span>
+        <span id="banner-progress-pct-${safeId}" class="small muted">${esc(Math.round(pct))}%</span>
+      </div>
+      <div class="banner-progress-track">
+        <div id="banner-progress-fill-${safeId}" class="banner-progress-fill" style="width:${esc(pct)}%"></div>
+      </div>
+      <div id="banner-progress-text-${safeId}" class="small muted">${esc(message || 'Выполняется запрос...')}</div>
+    </div>
+  `;
+}
+
+function updateBannerProgressState(safeId, percent, message){
+  const pct = Math.max(0, Math.min(100, Number(percent || 0)));
+  const fill = document.getElementById(`banner-progress-fill-${safeId}`);
+  const pctText = document.getElementById(`banner-progress-pct-${safeId}`);
+  const msg = document.getElementById(`banner-progress-text-${safeId}`);
+  if (fill) fill.style.width = `${pct}%`;
+  if (pctText) pctText.textContent = `${Math.round(pct)}%`;
+  if (msg && message) msg.textContent = String(message);
+}
+
 async function generateScoringBanners(cohortName){
   const name = String(cohortName || '').trim();
   if (!name) return;
+  const safeId = safeDomId(name);
+  const existingJob = BANNER_GENERATION_JOBS[safeId];
+  if (existingJob && existingJob.busy) return;
 
-  const containerId = 'banners-' + safeDomId(name);
+  const containerId = 'banners-' + safeId;
   const container = document.getElementById(containerId);
+  setBannerGenerateButtonState(name, true, 'Генерируем...');
+
+  let progress = 7;
+  let timer = null;
   if (container) {
-    container.innerHTML = '<div class="small muted">Генерация баннеров...</div>';
+    renderBannerProgressState(container, safeId, progress, 'Подготовка запроса...');
+    timer = window.setInterval(() => {
+      progress = Math.min(progress + (progress < 65 ? 7 : progress < 88 ? 3 : 1), 92);
+      const label = progress < 32
+        ? 'Формируем промпт...'
+        : progress < 66
+          ? 'Генерируем изображение...'
+          : 'Сохраняем баннер...';
+      updateBannerProgressState(safeId, progress, label);
+    }, 650);
   }
+  BANNER_GENERATION_JOBS[safeId] = { busy: true, timer };
 
   const tpl = DASH.scoring_ad_templates || {};
   try {
@@ -1404,16 +1460,20 @@ async function generateScoringBanners(cohortName){
       }),
     });
 
+    if (timer) window.clearInterval(timer);
+    delete BANNER_GENERATION_JOBS[safeId];
+    setBannerGenerateButtonState(name, false);
+
     const images = data.generated || [];
     if (!container) return;
     if (!images.length) {
-      container.innerHTML = '<div class="small muted">Генерация завершена, но изображения не получены.</div>';
+      renderBannerProgressState(container, safeId, 100, 'Генерация завершена, но изображения не получены.');
       return;
     }
 
     container.innerHTML = `
       <div class="small muted" style="margin-bottom:8px">
-        Сгенерировано: ${esc(data.generated_count || images.length)} · Модель: ${esc(data.model || '-')} · Размер: ${esc(data.size || '-')}
+        Сгенерировано: ${esc(data.generated_count || images.length)} · Провайдер: ${esc(data.provider_used || data.provider_requested || '-')} · Модель: ${esc(data.model_used || data.model || '-')} · Размер: ${esc(data.size || '-')}
       </div>
       <div class="banner-grid">
         ${images.map((img) => `
@@ -1430,6 +1490,9 @@ async function generateScoringBanners(cohortName){
       ${(data.failed_count || 0) > 0 ? `<div class="code" style="margin-top:10px">Ошибок генерации: ${esc(data.failed_count)}</div>` : ''}
     `;
   } catch (e) {
+    if (timer) window.clearInterval(timer);
+    delete BANNER_GENERATION_JOBS[safeId];
+    setBannerGenerateButtonState(name, false);
     if (container) {
       container.innerHTML = `<div class="code">Ошибка генерации баннеров: ${esc(e.message)}</div>`;
     } else {
