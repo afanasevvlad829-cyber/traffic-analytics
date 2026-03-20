@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from typing import Any
 
 from psycopg2.extras import Json, RealDictCursor
@@ -66,6 +67,7 @@ class ScoringService:
                 "source_mode": builder.source_mode,
                 "scoring_version": self.scorer.scoring_version,
                 "feature_sync": feature_sync_result,
+                **self._runtime_debug(feature_sync_result=feature_sync_result, source_mode=builder.source_mode),
             }
 
         upserted = 0
@@ -85,7 +87,28 @@ class ScoringService:
             "source_mode": builder.source_mode,
             "scoring_version": self.scorer.scoring_version,
             "feature_sync": feature_sync_result,
+            **self._runtime_debug(feature_sync_result=feature_sync_result, source_mode=builder.source_mode),
         }
+
+    def _runtime_debug(self, feature_sync_result: dict[str, Any] | None, source_mode: str) -> dict[str, Any]:
+        page_signal_status = ((feature_sync_result or {}).get("page_signal_status") or {}) if feature_sync_result else {}
+        return {
+            "feature_sync_version": (feature_sync_result or {}).get("feature_sync_version"),
+            "attribution_logic_version": (feature_sync_result or {}).get("attribution_logic_version"),
+            "git_commit": self._git_commit(),
+            "source_mode": source_mode,
+            "has_attribution_stats": isinstance(page_signal_status.get("attribution_stats"), dict),
+        }
+
+    @staticmethod
+    def _git_commit() -> str:
+        try:
+            return (
+                subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True, timeout=2).strip()
+                or "unknown"
+            )
+        except Exception:  # noqa: BLE001
+            return "unknown"
 
     def get_summary(self) -> dict[str, Any]:
         sql = """

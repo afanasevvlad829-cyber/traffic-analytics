@@ -11,6 +11,9 @@ from src.db import db_cursor
 from src.extract_metrica import METRICA_URL
 from src.settings import Settings
 
+FEATURE_SYNC_VERSION = "feature_sync_v2026_03_20"
+ATTRIBUTION_LOGIC_VERSION = "attribution_v2026_03_20"
+
 
 def _safe_dim(dims: list[dict[str, Any]], idx: int) -> str:
     if len(dims) <= idx:
@@ -226,6 +229,9 @@ def _extract_url_signals(raw_url: str) -> dict[str, Any]:
         "utm_source": utm_source,
         "utm_medium": utm_medium,
         "traffic_source": traffic_source,
+        "has_yclid": "yclid" in query_keys or "ymclid" in query_keys,
+        "has_vkclid": "vkclid" in query_keys,
+        "has_gclid": "gclid" in query_keys,
         "visited_price_page": _bool_keyword(text_blob, ["price", "pricing", "цена", "стоим"]),
         "visited_program_page": _bool_keyword(text_blob, ["program", "программ", "schedule", "camp-program"]),
         "visited_booking_page": _bool_keyword(text_blob, ["book", "booking", "reserve", "брон", "запис"]),
@@ -527,6 +533,8 @@ def build_scoring_features(
             "ok": False,
             "skipped": True,
             "reason": "METRICA_TOKEN or METRICA_COUNTER_ID is missing",
+            "feature_sync_version": FEATURE_SYNC_VERSION,
+            "attribution_logic_version": ATTRIBUTION_LOGIC_VERSION,
             "fetched": 0,
             "upserted": 0,
         }
@@ -577,6 +585,8 @@ def build_scoring_features(
                 "ok": False,
                 "skipped": False,
                 "reason": f"failed to clear stg_metrica_visitors_features: {exc}",
+                "feature_sync_version": FEATURE_SYNC_VERSION,
+                "attribution_logic_version": ATTRIBUTION_LOGIC_VERSION,
                 "fetched": 0,
                 "upserted": 0,
                 "primary_query": primary_query,
@@ -729,6 +739,8 @@ def build_scoring_features(
         "ok": True,
         "skipped": False,
         "source": "metrica_stat_api",
+        "feature_sync_version": FEATURE_SYNC_VERSION,
+        "attribution_logic_version": ATTRIBUTION_LOGIC_VERSION,
         "source_mode": source_mode,
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
@@ -753,4 +765,98 @@ def build_scoring_features(
         "page_signal_status": page_signal_status,
         "page_signals_clients": len(page_signals),
         "page_signals_rows_built": fallback_rows_count,
+    }
+
+
+def debug_unknown_attribution_examples(
+    days: int = 30,
+    max_rows: int = 50000,
+    page_limit: int = 10000,
+    limit: int = 20,
+) -> dict[str, Any]:
+    token = (Settings.METRICA_TOKEN or "").strip()
+    counter_id = (Settings.METRICA_COUNTER_ID or "").strip()
+    if not token or not counter_id:
+        return {
+            "ok": False,
+            "reason": "METRICA_TOKEN or METRICA_COUNTER_ID is missing",
+            "feature_sync_version": FEATURE_SYNC_VERSION,
+            "attribution_logic_version": ATTRIBUTION_LOGIC_VERSION,
+            "items": [],
+        }
+
+    safe_limit = max(1, min(int(limit or 20), 20))
+    safe_days = max(1, min(int(days or 30), 365))
+    safe_max_rows = max(1, min(int(max_rows or 50000), 200000))
+    safe_page_limit = max(1, min(int(page_limit or 10000), 100000))
+    date_to = date.today() - timedelta(days=1)
+    date_from = date_to - timedelta(days=safe_days - 1)
+
+    headers = {"Authorization": f"OAuth {token}"}
+    offset = 1
+    fetched = 0
+    pages = 0
+    items: list[dict[str, Any]] = []
+
+    while fetched < safe_max_rows and len(items) < safe_limit:
+        page_size = min(safe_page_limit, safe_max_rows - fetched)
+        params = {
+            "ids": counter_id,
+            "date1": date_from.isoformat(),
+            "date2": date_to.isoformat(),
+            "dimensions": "ym:s:clientID,ym:s:startURL",
+            "metrics": "ym:s:visits",
+            "accuracy": "full",
+            "limit": page_size,
+            "offset": offset,
+        }
+        response = requests.get(METRICA_URL, params=params, headers=headers, timeout=90)
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload.get("data") or []
+        if not rows:
+            break
+
+        for row in rows:
+            dims = row.get("dimensions") or []
+            visitor_id = _safe_dim(dims, 0)
+            raw_url = _safe_dim(dims, 1)
+            if _is_invalid_client_id(visitor_id):
+                continue
+            signals = _extract_url_signals(raw_url)
+            derived = str(signals.get("traffic_source") or "unknown")
+            if derived != "unknown":
+                continue
+            items.append(
+                {
+                    "visitor_id": visitor_id,
+                    "raw_start_url": raw_url,
+                    "utm_source": signals.get("utm_source"),
+                    "utm_medium": signals.get("utm_medium"),
+                    "has_yclid": bool(signals.get("has_yclid")),
+                    "has_vkclid": bool(signals.get("has_vkclid")),
+                    "has_gclid": bool(signals.get("has_gclid")),
+                    "derived_traffic_source": derived,
+                }
+            )
+            if len(items) >= safe_limit:
+                break
+
+        pages += 1
+        fetched += len(rows)
+        offset += len(rows)
+        if len(rows) < page_size:
+            break
+
+    return {
+        "ok": True,
+        "feature_sync_version": FEATURE_SYNC_VERSION,
+        "attribution_logic_version": ATTRIBUTION_LOGIC_VERSION,
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+        "source": "metrica_stat_api",
+        "items": items,
+        "count": len(items),
+        "fetched_rows": fetched,
+        "pages": pages,
     }

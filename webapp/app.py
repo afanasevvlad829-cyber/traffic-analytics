@@ -16,6 +16,7 @@ from src.scoring.service import (
     get_scoring_visitors,
     rebuild_scoring_v1,
 )
+from src.scoring.feature_sync import debug_unknown_attribution_examples
 from src.scoring.report import send_scoring_report
 
 BASE_DIR = Path("/home/kv145/traffic-analytics")
@@ -384,6 +385,16 @@ def api_scoring_rebuild(payload: ScoringRebuildIn | None = None):
             print(f"[scoring-report] {exc}")
 
     return result
+
+
+@app.get("/api/scoring/debug/unknown-attribution")
+def api_scoring_debug_unknown_attribution(limit: int = 20, days: int = 30):
+    safe_limit = max(1, min(limit, 20))
+    safe_days = max(1, min(days, 365))
+    try:
+        return debug_unknown_attribution_examples(days=safe_days, limit=safe_limit)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed to collect unknown attribution debug: {exc}")
 
 
 @app.get("/api/scoring/visitor/{visitor_id}")
