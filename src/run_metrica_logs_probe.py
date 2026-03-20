@@ -95,7 +95,7 @@ def _create_logrequest_with_fallback(
     raise RuntimeError(f"logrequest create failed for source={source}; errors={errors}")
 
 
-def _poll_logrequest(token: str, counter_id: str, request_id: int, timeout_sec: int = 180) -> dict[str, Any]:
+def _poll_logrequest(token: str, counter_id: str, request_id: int, timeout_sec: int = 420) -> dict[str, Any]:
     url = REQUEST_BASE.format(counter_id=counter_id) + f"/{request_id}"
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
@@ -103,9 +103,9 @@ def _poll_logrequest(token: str, counter_id: str, request_id: int, timeout_sec: 
         resp.raise_for_status()
         data = _safe_json(resp)
         status = str((data.get("log_request") or {}).get("status") or "").lower()
-        if status in {"processed", "created", "cleaned_by_user", "cleaned_automatically"}:
+        if status == "processed":
             return data
-        if status in {"failed", "canceled"}:
+        if status in {"failed", "canceled", "cleaned_by_user", "cleaned_automatically"}:
             return data
         time.sleep(3)
     return {"log_request": {"status": "timeout"}}
