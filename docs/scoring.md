@@ -235,6 +235,38 @@ Smoke script делает:
 5. проверяет `GET /api/scoring/visitor/{id}`;
 6. печатает итог `PASS` или `FAIL`.
 
+## Final attribution audit (one command)
+
+Для финальной post-deploy проверки attribution по реальным visitor данным:
+
+```bash
+python3 -m src.run_scoring_attribution_audit \
+  --base-url https://ai.aidaplus.ru \
+  --features-days 30 \
+  --features-limit 50000 \
+  --insecure
+```
+
+Что делает команда:
+
+1. снимает baseline по `unknown` (API sample);
+2. запускает `POST /api/scoring/rebuild` с:
+   - `sync_features=true`
+   - `use_fallback=false`
+   - `features_days=30`
+   - `features_limit=50000`
+3. снимает post-rebuild метрики;
+4. печатает единый JSON-отчёт:
+   - rebuild result
+   - summary
+   - before/after unknown
+   - top traffic sources
+   - 5 sample visitor rows
+
+Примечание:
+- если DB доступна (обычно на сервере), скрипт дополнительно считает точные метрики по таблицам `stg_metrica_visitors_features` и `mart_visitor_scoring`;
+- если DB недоступна из текущей среды, скрипт честно показывает API-based выборку (до 1000 строк).
+
 ## How to seed
 
 Ручной запуск seed:
