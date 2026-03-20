@@ -15,6 +15,7 @@ import requests
 from src.settings import Settings
 
 MGMT_BASE = "https://api-metrika.yandex.net/management/v1/counter/{counter_id}/logrequests"
+REQUEST_BASE = "https://api-metrika.yandex.net/management/v1/counter/{counter_id}/logrequest"
 
 
 @dataclass
@@ -95,7 +96,7 @@ def _create_logrequest_with_fallback(
 
 
 def _poll_logrequest(token: str, counter_id: str, request_id: int, timeout_sec: int = 180) -> dict[str, Any]:
-    url = MGMT_BASE.format(counter_id=counter_id) + f"/{request_id}"
+    url = REQUEST_BASE.format(counter_id=counter_id) + f"/{request_id}"
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
         resp = requests.get(url, headers=_headers(token), timeout=60)
@@ -111,7 +112,7 @@ def _poll_logrequest(token: str, counter_id: str, request_id: int, timeout_sec: 
 
 
 def _download_first_part(token: str, counter_id: str, request_id: int, part_number: int) -> str:
-    url = MGMT_BASE.format(counter_id=counter_id) + f"/{request_id}/part/{part_number}/download"
+    url = REQUEST_BASE.format(counter_id=counter_id) + f"/{request_id}/part/{part_number}/download"
     resp = requests.get(url, headers=_headers(token), timeout=120)
     resp.raise_for_status()
     raw = resp.content
@@ -121,9 +122,9 @@ def _download_first_part(token: str, counter_id: str, request_id: int, part_numb
 
 
 def _delete_request(token: str, counter_id: str, request_id: int) -> None:
-    url = MGMT_BASE.format(counter_id=counter_id) + f"/{request_id}"
+    url = REQUEST_BASE.format(counter_id=counter_id) + f"/{request_id}/clean"
     try:
-        requests.delete(url, headers=_headers(token), timeout=30)
+        requests.post(url, headers=_headers(token), timeout=30)
     except Exception:  # noqa: BLE001
         pass
 
