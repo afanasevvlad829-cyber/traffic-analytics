@@ -347,11 +347,18 @@ def _load_client_page_signals(
     signals: dict[str, dict[str, Any]] = {}
     total_rows: int | None = None
     pages = 0
-    query_info = {
-        "dimensions": ["ym:s:clientID", "ym:s:startURL"],
-        "metrics": ["ym:s:visits"],
-        "filters": "",
-    }
+    extended_dimensions = [
+        "ym:s:clientID",
+        "ym:s:startURL",
+        "ym:s:lastTrafficSource",
+        "ym:s:lastAdvEngine",
+        "ym:s:lastUTMSource",
+        "ym:s:lastUTMMedium",
+    ]
+    basic_dimensions = ["ym:s:clientID", "ym:s:startURL"]
+    selected_dimensions = extended_dimensions.copy()
+    query_info = {"dimensions": selected_dimensions.copy(), "metrics": ["ym:s:visits"], "filters": ""}
+    raw_samples: list[dict[str, Any]] = []
 
     while fetched < safe_max_rows:
         page_size = min(safe_page_limit, safe_max_rows - fetched)
@@ -359,14 +366,23 @@ def _load_client_page_signals(
             "ids": counter_id,
             "date1": date_from.isoformat(),
             "date2": date_to.isoformat(),
-            "dimensions": "ym:s:clientID,ym:s:startURL",
+            "dimensions": ",".join(selected_dimensions),
             "metrics": "ym:s:visits",
             "accuracy": "full",
             "limit": page_size,
             "offset": offset,
         }
-        response = requests.get(METRICA_URL, params=params, headers=headers, timeout=90)
-        response.raise_for_status()
+        try:
+            response = requests.get(METRICA_URL, params=params, headers=headers, timeout=90)
+            response.raise_for_status()
+        except Exception:
+            can_fallback_to_basic = selected_dimensions != basic_dimensions and fetched == 0 and pages == 0
+            if not can_fallback_to_basic:
+                raise
+            selected_dimensions = basic_dimensions.copy()
+            query_info["dimensions"] = selected_dimensions.copy()
+            continue
+
         payload = response.json()
         rows = payload.get("data") or []
         if not rows:
@@ -378,6 +394,10 @@ def _load_client_page_signals(
             client_id = _safe_dim(dims, 0)
             start_url_raw = _safe_dim(dims, 1)
             start_url = start_url_raw.lower()
+            raw_traffic_source = _safe_dim(dims, 2)
+            raw_source_engine = _safe_dim(dims, 3)
+            raw_utm_source = _safe_dim(dims, 4)
+            raw_utm_medium = _safe_dim(dims, 5)
             visits = max(0.0, _safe_metric(item.get("metrics") or [], 0))
 
             if _is_invalid_client_id(client_id):
@@ -407,19 +427,46 @@ def _load_client_page_signals(
             url_signals = _extract_url_signals(start_url_raw)
             candidate_source = str(url_signals.get("traffic_source") or "unknown")
             candidate_rank = _source_rank(candidate_source)
+            raw_candidate_source = _derive_traffic_source_from_hints(
+                traffic_source=raw_traffic_source,
+                source_engine=raw_source_engine,
+                utm_source=raw_utm_source,
+                utm_medium=raw_utm_medium,
+                utm_campaign="",
+            )
+            raw_candidate_rank = _source_rank(raw_candidate_source)
             row["visited_price_page"] = bool(row["visited_price_page"]) or bool(url_signals["visited_price_page"])
             row["visited_program_page"] = bool(row["visited_program_page"]) or bool(url_signals["visited_program_page"])
             row["visited_booking_page"] = bool(row["visited_booking_page"]) or bool(url_signals["visited_booking_page"])
             row["clicked_booking_button"] = bool(row["clicked_booking_button"]) or bool(url_signals["clicked_booking_button"])
 
+            if not row["utm_source"] and raw_utm_source:
+                row["utm_source"] = str(raw_utm_source)
+            if not row["utm_medium"] and raw_utm_medium:
+                row["utm_medium"] = str(raw_utm_medium)
             if not row["utm_source"] and url_signals["utm_source"]:
                 row["utm_source"] = str(url_signals["utm_source"])
             if not row["utm_medium"] and url_signals["utm_medium"]:
                 row["utm_medium"] = str(url_signals["utm_medium"])
 
+            if raw_candidate_rank > int(row.get("source_rank") or 0):
+                row["traffic_source"] = raw_candidate_source
+                row["source_rank"] = raw_candidate_rank
             if candidate_rank > int(row.get("source_rank") or 0):
                 row["traffic_source"] = candidate_source
                 row["source_rank"] = candidate_rank
+
+            if len(raw_samples) < 20:
+                raw_samples.append(
+                    {
+                        "visitor_id": client_id,
+                        "raw_start_url": start_url_raw,
+                        "lastTrafficSource": raw_traffic_source,
+                        "lastAdvEngine": raw_source_engine,
+                        "lastUTMSource": raw_utm_source,
+                        "lastUTMMedium": raw_utm_medium,
+                    }
+                )
 
         pages += 1
         fetched += len(rows)
@@ -461,6 +508,7 @@ def _load_client_page_signals(
             "pages": pages,
             "total_rows_reported": total_rows,
             "clients": len(signals),
+            "raw_sample_rows": raw_samples,
             "attribution_stats": {
                 "unknown_before": unknown_before,
                 "unknown_after": unknown_after,
