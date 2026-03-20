@@ -31,6 +31,7 @@ class VisitorFeatures:
     utm_source: str
     utm_medium: str
     device_type: str
+    os_root: str
     is_bounce: bool
     data_source: str
 
@@ -87,6 +88,7 @@ class FeatureBuilder:
                 utm_source,
                 utm_medium,
                 device_type,
+                os_root,
                 is_bounce
             from stg_metrica_visitors_features
             order by coalesce(last_seen_at, first_seen_at, loaded_at) desc
@@ -165,6 +167,7 @@ class FeatureBuilder:
             utm_source=str(row.get("utm_source") or ""),
             utm_medium=str(row.get("utm_medium") or ""),
             device_type=str(row.get("device_type") or ""),
+            os_root=str(row.get("os_root") or ""),
             is_bounce=bool(row.get("is_bounce")),
             data_source="stg_metrica_visitors_features",
         )
@@ -213,6 +216,7 @@ class FeatureBuilder:
             utm_source=utm_source,
             utm_medium=utm_medium,
             device_type="",
+            os_root="",
             is_bounce=is_bounce,
             data_source="stg_metrica_source_daily_fallback",
         )

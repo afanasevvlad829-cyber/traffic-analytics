@@ -11,11 +11,13 @@ from src.db import db_cursor
 from src.extract_metrica import METRICA_URL
 from src.settings import Settings
 
-FEATURE_SYNC_VERSION = "feature_sync_v2026_03_20"
+FEATURE_SYNC_VERSION = "feature_sync_v2026_03_20_device_fix"
 ATTRIBUTION_LOGIC_VERSION = "attribution_v2026_03_20"
 
 
 def _safe_dim(dims: list[dict[str, Any]], idx: int) -> str:
+    if idx < 0:
+        return ""
     if len(dims) <= idx:
         return ""
     value = dims[idx] or {}
@@ -57,6 +59,38 @@ def _to_int(value: float) -> int:
 
 def _norm_token(value: str) -> str:
     return (value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _normalize_device_type(raw: str) -> str:
+    v = _norm_token(raw)
+    if not v:
+        return ""
+    if v in {"1", "desktop", "pc"}:
+        return "desktop"
+    if v in {"2", "mobile", "smartphone", "smartphones", "phone"}:
+        return "mobile"
+    if v in {"3", "tablet", "tablets"}:
+        return "tablet"
+    return v
+
+
+def _normalize_os_root(raw: str) -> str:
+    v = _norm_token(raw)
+    if not v:
+        return ""
+    if "android" in v:
+        return "android"
+    if v in {"ios", "ios_double"} or "iphone" in v or "ipad" in v:
+        return "ios"
+    if "windows" in v:
+        return "windows"
+    if "mac" in v:
+        return "macos"
+    if "linux" in v:
+        return "linux"
+    if "unknown" in v:
+        return "unknown"
+    return v
 
 
 def _legacy_guess_traffic_source(utm_source: str, utm_medium: str) -> str:
@@ -266,11 +300,12 @@ def _upsert_feature_rows(rows: list[dict[str, Any]]) -> int:
                     utm_source,
                     utm_medium,
                     device_type,
+                    os_root,
                     is_bounce,
                     loaded_at
                 )
                 values (
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now()
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now()
                 )
                 on conflict (visitor_id)
                 do update set
@@ -290,6 +325,7 @@ def _upsert_feature_rows(rows: list[dict[str, Any]]) -> int:
                     utm_source = excluded.utm_source,
                     utm_medium = excluded.utm_medium,
                     device_type = excluded.device_type,
+                    os_root = excluded.os_root,
                     is_bounce = excluded.is_bounce,
                     loaded_at = now()
                 """,
@@ -311,6 +347,7 @@ def _upsert_feature_rows(rows: list[dict[str, Any]]) -> int:
                     row["utm_source"],
                     row["utm_medium"],
                     row["device_type"],
+                    row["os_root"],
                     row["is_bounce"],
                 ),
             )
@@ -354,6 +391,23 @@ def _load_client_page_signals(
         "ym:s:lastAdvEngine",
         "ym:s:lastUTMSource",
         "ym:s:lastUTMMedium",
+        "ym:s:deviceCategory",
+        "ym:s:operatingSystemRoot",
+    ]
+    fallback_source_hints_dimensions = [
+        "ym:s:clientID",
+        "ym:s:startURL",
+        "ym:s:lastTrafficSource",
+        "ym:s:lastUTMSource",
+        "ym:s:lastUTMMedium",
+        "ym:s:deviceCategory",
+        "ym:s:operatingSystemRoot",
+    ]
+    fallback_with_device_dimensions = [
+        "ym:s:clientID",
+        "ym:s:startURL",
+        "ym:s:deviceCategory",
+        "ym:s:operatingSystemRoot",
     ]
     basic_dimensions = ["ym:s:clientID", "ym:s:startURL"]
     selected_dimensions = extended_dimensions.copy()
@@ -378,11 +432,20 @@ def _load_client_page_signals(
             response = requests.get(METRICA_URL, params=params, headers=headers, timeout=90)
             response.raise_for_status()
         except Exception:
-            can_fallback_to_basic = selected_dimensions != basic_dimensions and fetched == 0 and pages == 0
-            if not can_fallback_to_basic:
+            can_switch = fetched == 0 and pages == 0
+            if not can_switch:
                 raise
-            selected_dimensions = basic_dimensions.copy()
-            selected_query_name = "fallback_current"
+            if selected_dimensions == extended_dimensions:
+                selected_dimensions = fallback_source_hints_dimensions.copy()
+                selected_query_name = "fallback_source_hints"
+            elif selected_dimensions == fallback_source_hints_dimensions:
+                selected_dimensions = fallback_with_device_dimensions.copy()
+                selected_query_name = "fallback_with_device"
+            elif selected_dimensions == fallback_with_device_dimensions:
+                selected_dimensions = basic_dimensions.copy()
+                selected_query_name = "fallback_current"
+            else:
+                raise
             safe_fallback_triggered = True
             query_info["dimensions"] = selected_dimensions.copy()
             continue
@@ -390,10 +453,17 @@ def _load_client_page_signals(
         payload = response.json()
         rows = payload.get("data") or []
         if not rows:
-            can_fallback_to_basic = selected_dimensions != basic_dimensions and fetched == 0 and pages == 0
-            if can_fallback_to_basic:
-                selected_dimensions = basic_dimensions.copy()
-                selected_query_name = "fallback_current"
+            can_switch = fetched == 0 and pages == 0
+            if can_switch and selected_dimensions != basic_dimensions:
+                if selected_dimensions == extended_dimensions:
+                    selected_dimensions = fallback_source_hints_dimensions.copy()
+                    selected_query_name = "fallback_source_hints"
+                elif selected_dimensions == fallback_source_hints_dimensions:
+                    selected_dimensions = fallback_with_device_dimensions.copy()
+                    selected_query_name = "fallback_with_device"
+                else:
+                    selected_dimensions = basic_dimensions.copy()
+                    selected_query_name = "fallback_current"
                 safe_fallback_triggered = True
                 query_info["dimensions"] = selected_dimensions.copy()
                 continue
@@ -402,13 +472,17 @@ def _load_client_page_signals(
         total_rows = int(payload.get("total_rows") or 0) or total_rows
         for item in rows:
             dims = item.get("dimensions") or []
-            client_id = _safe_dim(dims, 0)
-            start_url_raw = _safe_dim(dims, 1)
+            dim_idx = {k: i for i, k in enumerate(selected_dimensions)}
+
+            client_id = _safe_dim(dims, dim_idx.get("ym:s:clientID", -1))
+            start_url_raw = _safe_dim(dims, dim_idx.get("ym:s:startURL", -1))
             start_url = start_url_raw.lower()
-            raw_traffic_source = _safe_dim(dims, 2)
-            raw_source_engine = _safe_dim(dims, 3)
-            raw_utm_source = _safe_dim(dims, 4)
-            raw_utm_medium = _safe_dim(dims, 5)
+            raw_traffic_source = _safe_dim(dims, dim_idx.get("ym:s:lastTrafficSource", -1))
+            raw_source_engine = _safe_dim(dims, dim_idx.get("ym:s:lastAdvEngine", -1))
+            raw_utm_source = _safe_dim(dims, dim_idx.get("ym:s:lastUTMSource", -1))
+            raw_utm_medium = _safe_dim(dims, dim_idx.get("ym:s:lastUTMMedium", -1))
+            raw_device_type = _safe_dim(dims, dim_idx.get("ym:s:deviceCategory", -1))
+            raw_os_root = _safe_dim(dims, dim_idx.get("ym:s:operatingSystemRoot", -1))
             visits = max(0.0, _safe_metric(item.get("metrics") or [], 0))
 
             if _is_invalid_client_id(client_id):
@@ -424,6 +498,7 @@ def _load_client_page_signals(
                     "traffic_source": "unknown",
                     "source_rank": _source_rank("unknown"),
                     "device_type": "",
+                    "os_root": "",
                     "visited_price_page": False,
                     "visited_program_page": False,
                     "visited_booking_page": False,
@@ -466,6 +541,10 @@ def _load_client_page_signals(
             if candidate_rank > int(row.get("source_rank") or 0):
                 row["traffic_source"] = candidate_source
                 row["source_rank"] = candidate_rank
+            if not row["device_type"] and raw_device_type:
+                row["device_type"] = _normalize_device_type(raw_device_type)
+            if not row["os_root"] and raw_os_root:
+                row["os_root"] = _normalize_os_root(raw_os_root)
 
             if len(raw_samples) < 20:
                 raw_samples.append(
@@ -476,6 +555,8 @@ def _load_client_page_signals(
                         "lastAdvEngine": raw_source_engine,
                         "lastUTMSource": raw_utm_source,
                         "lastUTMMedium": raw_utm_medium,
+                        "deviceCategory": raw_device_type,
+                        "operatingSystemRoot": raw_os_root,
                     }
                 )
 
@@ -570,6 +651,7 @@ def _build_rows_from_page_signals(
                 "utm_source": str(signal.get("utm_source") or ""),
                 "utm_medium": str(signal.get("utm_medium") or ""),
                 "device_type": str(signal.get("device_type") or ""),
+                "os_root": str(signal.get("os_root") or ""),
                 "is_bounce": is_bounce,
             }
         )
@@ -628,6 +710,7 @@ def build_scoring_features(
             "ym:s:lastUTMSource",
             "ym:s:lastUTMMedium",
             "ym:s:deviceCategory",
+            "ym:s:operatingSystemRoot",
             "ym:s:lastUTMCampaign",
         ],
         "metrics": [
@@ -685,8 +768,9 @@ def build_scoring_features(
             source_engine = _safe_dim(dims, 2)
             utm_source = _safe_dim(dims, 3)
             utm_medium = _safe_dim(dims, 4)
-            device_type = _safe_dim(dims, 5)
-            utm_campaign = _safe_dim(dims, 6)
+            device_type = _normalize_device_type(_safe_dim(dims, 5))
+            os_root = _normalize_os_root(_safe_dim(dims, 6))
+            utm_campaign = _safe_dim(dims, 7)
             resolved_source = _derive_traffic_source_from_hints(
                 traffic_source=traffic_source,
                 source_engine=source_engine,
@@ -757,6 +841,7 @@ def build_scoring_features(
                     "utm_source": utm_source or source_engine,
                     "utm_medium": utm_medium,
                     "device_type": device_type,
+                    "os_root": os_root or str(signal.get("os_root") or ""),
                     "is_bounce": is_bounce,
                 }
             )
@@ -1019,6 +1104,7 @@ def probe_metrica_source_queries(days: int = 7, sample_limit: int = 20) -> dict[
                 "ym:s:lastUTMSource",
                 "ym:s:lastUTMMedium",
                 "ym:s:deviceCategory",
+                "ym:s:operatingSystemRoot",
                 "ym:s:lastUTMCampaign",
             ],
             "metrics": ["ym:s:visits", "ym:s:pageDepth"],
@@ -1037,6 +1123,8 @@ def probe_metrica_source_queries(days: int = 7, sample_limit: int = 20) -> dict[
                 "ym:s:lastAdvEngine",
                 "ym:s:lastUTMSource",
                 "ym:s:lastUTMMedium",
+                "ym:s:deviceCategory",
+                "ym:s:operatingSystemRoot",
             ],
             "metrics": ["ym:s:visits"],
         },

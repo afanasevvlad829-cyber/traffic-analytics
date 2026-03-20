@@ -1,14 +1,25 @@
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 from typing import Any
 
+import requests
 from psycopg2.extras import Json, RealDictCursor
 
 from src.db import db_cursor, get_connection
+from src.scoring.direct_bootstrap import bootstrap_direct_entities
 from src.scoring.feature_builder import FeatureBuilder, VisitorFeatures
+from src.scoring.creative_playbook import (
+    build_creative_plan_row,
+    build_creative_variants,
+    build_kpi_hypothesis,
+)
+from src.scoring.direct_sync import sync_audience_targets
 from src.scoring.feature_sync import build_scoring_features
 from src.scoring.scorer import RuleBasedScorer
+from src.settings import Settings
 
 UNDEFINED_TABLE_PGCODE = "42P01"
 UNDEFINED_COLUMN_PGCODE = "42703"
@@ -195,6 +206,7 @@ class ScoringService:
                 utm_source,
                 utm_medium,
                 device_type,
+                os_root,
                 raw_score,
                 normalized_score,
                 normalized_score as score,
@@ -258,6 +270,7 @@ class ScoringService:
                 utm_source,
                 utm_medium,
                 device_type,
+                os_root,
                 raw_score,
                 normalized_score,
                 normalized_score as score,
@@ -284,8 +297,8 @@ class ScoringService:
         finally:
             conn.close()
 
-    def get_timeseries(self, days: int = 30) -> dict[str, Any]:
-        safe_days = max(1, min(int(days or 30), 365))
+    def get_timeseries(self, days: int = 90) -> dict[str, Any]:
+        safe_days = max(1, min(int(days or 90), 365))
         check_sql = """
             select count(*)::int as cnt
             from mart_visitor_scoring
@@ -357,6 +370,882 @@ class ScoringService:
         finally:
             conn.close()
 
+    def get_audience_report(self, days: int = 90) -> dict[str, Any]:
+        safe_days = max(1, min(int(days or 90), 90))
+        gender_age = self._fetch_metrica_gender_age(days=safe_days)
+        source_mix = self._fetch_scoring_source_mix(days=safe_days, limit=12)
+        device_mix = self._fetch_metrica_device_mix(days=safe_days, limit=12)
+        mobile_os_mix = self._fetch_metrica_mobile_os_mix(days=safe_days, limit=12)
+        if not device_mix:
+            device_mix = self._fetch_scoring_device_mix(days=safe_days, limit=12)
+
+        ready = bool(gender_age.get("ready", False) or source_mix or device_mix or mobile_os_mix)
+        return {
+            "ready": ready,
+            "days": safe_days,
+            "gender_age": gender_age.get("items", []),
+            "gender_age_error": gender_age.get("error"),
+            "source_mix": source_mix,
+            "device_mix": device_mix,
+            "mobile_os_mix": mobile_os_mix,
+            "note": (
+                "Пол/возраст — агрегаты Метрики (не персональные признаки visitor). "
+                "Для visitor-level scoring используйте поведенческие сигналы."
+            ),
+        }
+
+    def get_attribution_quality(self, days: int = 90) -> dict[str, Any]:
+        safe_days = max(1, min(int(days or 90), 365))
+        conn = get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    with base as (
+                        select coalesce(nullif(traffic_source, ''), 'unknown') as source
+                        from mart_visitor_scoring
+                        where scored_at::date >= current_date - (%s::int - 1)
+                    )
+                    select
+                        count(*)::int as total,
+                        count(*) filter (where source = 'direct')::int as direct_cnt,
+                        count(*) filter (where source = 'unknown')::int as unknown_cnt
+                    from base
+                    """,
+                    (safe_days,),
+                )
+                row = cur.fetchone() or {}
+                total = int(row.get("total") or 0)
+                direct_cnt = int(row.get("direct_cnt") or 0)
+                unknown_cnt = int(row.get("unknown_cnt") or 0)
+                direct_pct = round((direct_cnt / total) * 100, 2) if total else 0.0
+                unknown_pct = round((unknown_cnt / total) * 100, 2) if total else 0.0
+
+                cur.execute(
+                    """
+                    select
+                        coalesce(nullif(traffic_source, ''), 'unknown') as source,
+                        count(*)::int as visitors
+                    from mart_visitor_scoring
+                    where scored_at::date >= current_date - (%s::int - 1)
+                    group by 1
+                    order by visitors desc
+                    limit 7
+                    """,
+                    (safe_days,),
+                )
+                top_sources = [dict(r) for r in cur.fetchall()]
+
+                if total == 0:
+                    status = "empty"
+                elif unknown_pct > 20 or direct_pct > 85:
+                    status = "low"
+                elif unknown_pct > 8 or direct_pct > 65:
+                    status = "medium"
+                else:
+                    status = "high"
+
+                return {
+                    "ready": True,
+                    "days": safe_days,
+                    "status": status,
+                    "total": total,
+                    "direct_cnt": direct_cnt,
+                    "unknown_cnt": unknown_cnt,
+                    "direct_pct": direct_pct,
+                    "unknown_pct": unknown_pct,
+                    "top_sources": top_sources,
+                }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ready": False,
+                "days": safe_days,
+                "status": "error",
+                "error": str(exc),
+                "total": 0,
+                "direct_cnt": 0,
+                "unknown_cnt": 0,
+                "direct_pct": 0.0,
+                "unknown_pct": 0.0,
+                "top_sources": [],
+            }
+        finally:
+            conn.close()
+
+    def get_creative_plan(self, days: int = 90, limit_per_segment: int = 5) -> dict[str, Any]:
+        safe_days = max(1, min(int(days or 90), 365))
+        safe_limit = max(1, min(int(limit_per_segment or 5), 20))
+        conn = get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    with ranked as (
+                        select
+                            visitor_id,
+                            segment,
+                            short_reason,
+                            coalesce(nullif(traffic_source, ''), 'unknown') as traffic_source,
+                            coalesce(nullif(os_root, ''), 'unknown') as os_root,
+                            normalized_score,
+                            scored_at,
+                            row_number() over (partition by segment order by normalized_score desc, scored_at desc) as rn
+                        from mart_visitor_scoring
+                        where scored_at::date >= current_date - (%s::int - 1)
+                    )
+                    select
+                        visitor_id,
+                        segment,
+                        short_reason,
+                        traffic_source,
+                        os_root,
+                        normalized_score,
+                        scored_at
+                    from ranked
+                    where rn <= %s
+                    order by segment, normalized_score desc, scored_at desc
+                    """,
+                    (safe_days, safe_limit),
+                )
+                rows = [dict(r) for r in cur.fetchall()]
+
+            items: list[dict[str, Any]] = []
+            for row in rows:
+                plan = build_creative_plan_row(
+                    segment=str(row.get("segment") or ""),
+                    short_reason=str(row.get("short_reason") or ""),
+                    traffic_source=str(row.get("traffic_source") or ""),
+                )
+                items.append(
+                    {
+                        **row,
+                        **plan,
+                    }
+                )
+
+            return {
+                "ready": True,
+                "days": safe_days,
+                "limit_per_segment": safe_limit,
+                "items": items,
+                "count": len(items),
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ready": False,
+                "days": safe_days,
+                "limit_per_segment": safe_limit,
+                "items": [],
+                "count": 0,
+                "error": str(exc),
+            }
+        finally:
+            conn.close()
+
+    def get_audiences_cohorts(self, days: int = 90) -> dict[str, Any]:
+        safe_days = max(1, min(int(days or 90), 365))
+        conn = get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    select
+                        segment,
+                        coalesce(nullif(os_root, ''), 'unknown') as os_root,
+                        coalesce(nullif(traffic_source, ''), 'unknown') as traffic_source,
+                        count(*)::int as visitors
+                    from mart_visitor_scoring
+                    where scored_at::date >= current_date - (%s::int - 1)
+                    group by 1,2,3
+                    order by visitors desc
+                    limit 100
+                    """,
+                    (safe_days,),
+                )
+                matrix = [dict(r) for r in cur.fetchall()]
+
+                cohorts_spec = [
+                    ("hot_all_7d", "hot", None, 7),
+                    ("hot_android_7d", "hot", "android", 7),
+                    ("hot_ios_7d", "hot", "ios", 7),
+                    ("warm_all_14d", "warm", None, 14),
+                    ("warm_android_14d", "warm", "android", 14),
+                    ("warm_ios_14d", "warm", "ios", 14),
+                    ("cold_all_30d", "cold", None, 30),
+                ]
+                cohorts: list[dict[str, Any]] = []
+                for name, segment, os_root, window_days in cohorts_spec:
+                    cur.execute(
+                        """
+                        select count(*)::int as cnt
+                        from mart_visitor_scoring
+                        where segment = %s
+                          and scored_at::date >= current_date - (%s::int - 1)
+                          and (%s::text is null or coalesce(nullif(os_root, ''), 'unknown') = %s::text)
+                        """,
+                        (segment, min(window_days, safe_days), os_root, os_root),
+                    )
+                    cnt = int((cur.fetchone() or {}).get("cnt") or 0)
+                    cohorts.append(
+                        {
+                            "cohort_name": name,
+                            "segment": segment,
+                            "os_root": os_root or "all",
+                            "window_days": min(window_days, safe_days),
+                            "visitors": cnt,
+                            "direct_tag": name,
+                        }
+                    )
+
+            return {
+                "ready": True,
+                "days": safe_days,
+                "cohorts": cohorts,
+                "matrix": matrix,
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ready": False,
+                "days": safe_days,
+                "cohorts": [],
+                "matrix": [],
+                "error": str(exc),
+            }
+        finally:
+            conn.close()
+
+    def get_audience_export(
+        self,
+        *,
+        days: int = 90,
+        segment: str | None = None,
+        os_root: str | None = None,
+        source: str | None = None,
+        min_score: float | None = None,
+        limit: int = 5000,
+        numeric_only: bool = True,
+    ) -> dict[str, Any]:
+        safe_days = max(1, min(int(days or 90), 365))
+        safe_limit = max(1, min(int(limit or 5000), 50000))
+        where = ["scored_at::date >= current_date - (%s::int - 1)"]
+        params: list[Any] = [safe_days]
+
+        if segment:
+            where.append("segment = %s")
+            params.append(segment.lower())
+        if os_root:
+            where.append("coalesce(nullif(os_root, ''), 'unknown') = %s")
+            params.append(os_root.lower())
+        if source:
+            where.append("coalesce(nullif(traffic_source, ''), 'unknown') = %s")
+            params.append(source.lower())
+        if min_score is not None:
+            where.append("normalized_score >= %s")
+            params.append(float(min_score))
+        if numeric_only:
+            where.append("visitor_id ~ '^[0-9]+$'")
+
+        sql = f"""
+            select
+                visitor_id,
+                segment,
+                normalized_score,
+                short_reason,
+                coalesce(nullif(traffic_source, ''), 'unknown') as traffic_source,
+                coalesce(nullif(os_root, ''), 'unknown') as os_root,
+                coalesce(nullif(device_type, ''), 'unknown') as device_type,
+                scored_at
+            from mart_visitor_scoring
+            where {' and '.join(where)}
+            order by normalized_score desc, scored_at desc
+            limit %s
+        """
+        params.append(safe_limit)
+
+        conn = get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(sql, tuple(params))
+                items = [dict(r) for r in cur.fetchall()]
+                return {
+                    "ready": True,
+                    "days": safe_days,
+                    "segment": segment,
+                    "os_root": os_root,
+                    "source": source,
+                    "min_score": min_score,
+                    "numeric_only": numeric_only,
+                    "limit": safe_limit,
+                    "count": len(items),
+                    "items": items,
+                }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ready": False,
+                "days": safe_days,
+                "segment": segment,
+                "os_root": os_root,
+                "source": source,
+                "min_score": min_score,
+                "numeric_only": numeric_only,
+                "limit": safe_limit,
+                "count": 0,
+                "items": [],
+                "error": str(exc),
+            }
+        finally:
+            conn.close()
+
+    def get_activation_plan(
+        self,
+        *,
+        days: int = 90,
+        min_audience_size: int = 100,
+        export_limit: int = 5000,
+    ) -> dict[str, Any]:
+        safe_days = max(1, min(int(days or 90), 365))
+        safe_min = max(1, min(int(min_audience_size or 100), 100000))
+        safe_limit = max(1, min(int(export_limit or 5000), 50000))
+
+        cohorts_payload = self.get_audiences_cohorts(days=safe_days)
+        if not cohorts_payload.get("ready", False):
+            return {
+                "ready": False,
+                "days": safe_days,
+                "min_audience_size": safe_min,
+                "export_limit": safe_limit,
+                "cohorts": [],
+                "count": 0,
+                "eligible_count": 0,
+                "error": cohorts_payload.get("error", "failed to build cohorts"),
+            }
+
+        cohorts = cohorts_payload.get("cohorts", []) or []
+        items: list[dict[str, Any]] = []
+        eligible = 0
+
+        for c in cohorts:
+            segment = str(c.get("segment") or "").strip().lower()
+            if segment not in {"hot", "warm", "cold"}:
+                continue
+            os_root = str(c.get("os_root") or "all").strip().lower()
+            window_days = int(c.get("window_days") or safe_days)
+            direct_tag = str(c.get("direct_tag") or c.get("cohort_name") or "").strip()
+            window = max(1, min(window_days, safe_days))
+            os_filter = None if os_root in {"", "all"} else os_root
+
+            export = self.get_audience_export(
+                days=window,
+                segment=segment,
+                os_root=os_filter,
+                limit=safe_limit,
+                numeric_only=True,
+            )
+            export_items = export.get("items", []) or []
+            audience_size = int(export.get("count") or len(export_items))
+            is_eligible = audience_size >= safe_min
+            if is_eligible:
+                eligible += 1
+
+            source_hint = str((export_items[0].get("traffic_source") if export_items else "") or "unknown")
+            reason_hint = str((export_items[0].get("short_reason") if export_items else "") or "")
+            creative = build_creative_plan_row(
+                segment=segment,
+                short_reason=reason_hint,
+                traffic_source=source_hint,
+            )
+
+            items.append(
+                {
+                    "cohort_name": str(c.get("cohort_name") or ""),
+                    "segment": segment,
+                    "os_root": os_root or "all",
+                    "window_days": window,
+                    "direct_tag": direct_tag,
+                    "audience_size": audience_size,
+                    "eligible": is_eligible,
+                    "min_required": safe_min,
+                    "source_hint": source_hint,
+                    "short_reason_hint": reason_hint,
+                    "sample_visitor_ids": [str(i.get("visitor_id")) for i in export_items[:20] if i.get("visitor_id")],
+                    "creative": creative,
+                }
+            )
+
+        return {
+            "ready": True,
+            "days": safe_days,
+            "min_audience_size": safe_min,
+            "export_limit": safe_limit,
+            "cohorts": items,
+            "count": len(items),
+            "eligible_count": eligible,
+        }
+
+    def sync_activation_to_direct(
+        self,
+        *,
+        days: int = 90,
+        min_audience_size: int = 100,
+        export_limit: int = 5000,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        plan = self.get_activation_plan(
+            days=days,
+            min_audience_size=min_audience_size,
+            export_limit=export_limit,
+        )
+        if not plan.get("ready", False):
+            return {
+                "ok": False,
+                "ready": False,
+                "dry_run": bool(dry_run),
+                "error": plan.get("error", "activation plan is not ready"),
+                "plan": plan,
+            }
+
+        eligible_cohorts = [c for c in (plan.get("cohorts") or []) if bool(c.get("eligible", False))]
+        sync = sync_audience_targets(cohorts=eligible_cohorts, dry_run=bool(dry_run))
+        return {
+            "ok": bool(sync.get("ok", False)),
+            "ready": True,
+            "dry_run": bool(sync.get("dry_run", dry_run)),
+            "days": int(plan.get("days") or days),
+            "min_audience_size": int(plan.get("min_audience_size") or min_audience_size),
+            "eligible_count": len(eligible_cohorts),
+            "plan_count": int(plan.get("count") or 0),
+            "sync": sync,
+        }
+
+    def get_activation_reaction(self, *, days: int = 30, limit: int = 50) -> dict[str, Any]:
+        safe_days = max(1, min(int(days or 30), 365))
+        safe_limit = max(1, min(int(limit or 50), 200))
+
+        conn = get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    with base as (
+                        select
+                            date,
+                            campaign_name,
+                            impressions,
+                            clicks,
+                            cost,
+                            lower((regexp_match(campaign_name, '(scoring_[a-z0-9_]+)'))[1]) as direct_tag
+                        from stg_direct_campaign_daily
+                        where date >= current_date - (%s::int - 1)
+                    )
+                    select
+                        direct_tag,
+                        sum(impressions)::bigint as impressions,
+                        sum(clicks)::bigint as clicks,
+                        round(sum(cost)::numeric, 2) as cost,
+                        round(
+                            case when sum(impressions) > 0
+                                then (sum(clicks)::numeric / sum(impressions)::numeric) * 100
+                                else 0
+                            end
+                        , 2) as ctr_pct,
+                        round(
+                            case when sum(clicks) > 0
+                                then sum(cost)::numeric / sum(clicks)::numeric
+                                else 0
+                            end
+                        , 2) as avg_cpc
+                    from base
+                    where direct_tag is not null
+                    group by direct_tag
+                    order by clicks desc, impressions desc
+                    limit %s
+                    """,
+                    (safe_days, safe_limit),
+                )
+                items = [dict(r) for r in cur.fetchall()]
+                total_impressions = int(sum(int(r.get("impressions") or 0) for r in items))
+                total_clicks = int(sum(int(r.get("clicks") or 0) for r in items))
+                total_cost = round(sum(float(r.get("cost") or 0.0) for r in items), 2)
+                return {
+                    "ready": True,
+                    "days": safe_days,
+                    "limit": safe_limit,
+                    "count": len(items),
+                    "items": items,
+                    "totals": {
+                        "impressions": total_impressions,
+                        "clicks": total_clicks,
+                        "cost": total_cost,
+                    },
+                }
+        except Exception as exc:  # noqa: BLE001
+            if self._is_undefined_table_error(exc):
+                return {
+                    "ready": False,
+                    "days": safe_days,
+                    "limit": safe_limit,
+                    "count": 0,
+                    "items": [],
+                    "totals": {"impressions": 0, "clicks": 0, "cost": 0.0},
+                    "error": "stg_direct_campaign_daily is missing",
+                }
+            return {
+                "ready": False,
+                "days": safe_days,
+                "limit": safe_limit,
+                "count": 0,
+                "items": [],
+                "totals": {"impressions": 0, "clicks": 0, "cost": 0.0},
+                "error": str(exc),
+            }
+        finally:
+            conn.close()
+
+    def get_ad_templates(
+        self,
+        *,
+        days: int = 90,
+        min_audience_size: int = 1,
+        include_small: bool = True,
+        variants: int = 3,
+    ) -> dict[str, Any]:
+        safe_days = max(1, min(int(days or 90), 365))
+        safe_min = max(1, min(int(min_audience_size or 1), 100000))
+        safe_variants = max(1, min(int(variants or 3), 5))
+
+        plan = self.get_activation_plan(
+            days=safe_days,
+            min_audience_size=safe_min,
+            export_limit=5000,
+        )
+        if not plan.get("ready", False):
+            return {
+                "ready": False,
+                "days": safe_days,
+                "count": 0,
+                "items": [],
+                "error": plan.get("error", "activation plan is not ready"),
+            }
+
+        reaction = self.get_activation_reaction(days=min(safe_days, 90), limit=200)
+        reaction_items = reaction.get("items", []) if reaction.get("ready", False) else []
+        reaction_by_tag = {str(i.get("direct_tag") or "").strip().lower(): i for i in reaction_items if i.get("direct_tag")}
+
+        mapping = self._read_direct_mapping()
+        out: list[dict[str, Any]] = []
+        for c in plan.get("cohorts") or []:
+            audience_size = int(c.get("audience_size") or 0)
+            if audience_size <= 0:
+                continue
+            if not include_small and not bool(c.get("eligible", False)):
+                continue
+
+            segment = str(c.get("segment") or "").strip().lower()
+            os_root = str(c.get("os_root") or "all").strip().lower()
+            window_days = int(c.get("window_days") or safe_days)
+            source_hint = str(c.get("source_hint") or c.get("traffic_source") or "unknown")
+            reason_hint = str(c.get("short_reason_hint") or c.get("short_reason") or "")
+            cohort_name = str(c.get("cohort_name") or "")
+
+            mapping_row = mapping.get(cohort_name) or {}
+            ad_group_id = mapping_row.get("ad_group_id")
+            retargeting_list_id = mapping_row.get("retargeting_list_id")
+            direct_tag = str(c.get("direct_tag") or "").strip().lower()
+            baseline_row = reaction_by_tag.get(direct_tag, {})
+
+            variants_rows = build_creative_variants(
+                segment=segment,
+                short_reason=reason_hint,
+                traffic_source=source_hint,
+                max_variants=safe_variants,
+            )
+            kpi_hypothesis = build_kpi_hypothesis(
+                segment=segment,
+                short_reason=reason_hint,
+                traffic_source=source_hint,
+                baseline=baseline_row,
+            )
+            out.append(
+                {
+                    "cohort_name": cohort_name,
+                    "segment": segment,
+                    "os_root": os_root,
+                    "window_days": window_days,
+                    "direct_tag": c.get("direct_tag"),
+                    "audience_size": audience_size,
+                    "eligible": bool(c.get("eligible", False)),
+                    "source_hint": source_hint,
+                    "short_reason_hint": reason_hint,
+                    "ad_group_id": ad_group_id,
+                    "retargeting_list_id": retargeting_list_id,
+                    "strategy_priority": mapping_row.get("strategy_priority"),
+                    "goal_id": mapping_row.get("goal_id"),
+                    "performance_baseline": baseline_row,
+                    "kpi_hypothesis": kpi_hypothesis,
+                    "variants": variants_rows,
+                }
+            )
+
+        return {
+            "ready": True,
+            "days": safe_days,
+            "min_audience_size": safe_min,
+            "include_small": bool(include_small),
+            "variants": safe_variants,
+            "count": len(out),
+            "items": out,
+        }
+
+    def bootstrap_activation_direct(
+        self,
+        *,
+        days: int = 90,
+        min_audience_size: int = 100,
+        export_limit: int = 5000,
+        campaign_id: int | None = None,
+        region_ids: list[int] | None = None,
+        apply: bool = False,
+        env_path: str = "/home/kv145/traffic-analytics/.env",
+        include_small: bool = False,
+    ) -> dict[str, Any]:
+        safe_days = max(1, min(int(days or 90), 365))
+        safe_min = max(1, min(int(min_audience_size or 100), 100000))
+        safe_limit = max(1, min(int(export_limit or 5000), 50000))
+        plan = self.get_activation_plan(
+            days=safe_days,
+            min_audience_size=safe_min,
+            export_limit=safe_limit,
+        )
+        if not plan.get("ready", False):
+            return {
+                "ok": False,
+                "ready": False,
+                "error": plan.get("error", "activation plan is not ready"),
+                "plan": plan,
+            }
+
+        selected_campaign_id = int(campaign_id) if campaign_id else self._infer_campaign_id_for_bootstrap()
+        if not selected_campaign_id:
+            return {
+                "ok": False,
+                "ready": False,
+                "error": "campaign_id is missing and cannot be inferred from stg_direct_campaign_daily",
+                "plan": {
+                    "count": int(plan.get("count") or 0),
+                    "eligible_count": int(plan.get("eligible_count") or 0),
+                },
+            }
+
+        cohorts_raw = plan.get("cohorts") or []
+        cohorts = [
+            c
+            for c in cohorts_raw
+            if int(c.get("audience_size") or 0) > 0 and (include_small or bool(c.get("eligible", False)))
+        ]
+        bootstrap = bootstrap_direct_entities(
+            cohorts=cohorts,
+            campaign_id=selected_campaign_id,
+            region_ids=region_ids or [0],
+            apply=bool(apply),
+            env_path=env_path,
+            enable_auto_sync=True,
+        )
+        return {
+            "ok": bool(bootstrap.get("ok", False)),
+            "ready": True,
+            "apply": bool(apply),
+            "days": safe_days,
+            "campaign_id": selected_campaign_id,
+            "cohorts_selected": len(cohorts),
+            "include_small": bool(include_small),
+            "plan_count": int(plan.get("count") or 0),
+            "eligible_count": int(plan.get("eligible_count") or 0),
+            "bootstrap": bootstrap,
+        }
+
+    @staticmethod
+    def _fetch_metrica_gender_age(days: int) -> dict[str, Any]:
+        token = str(Settings.METRICA_TOKEN or "").strip()
+        counter_id = str(Settings.METRICA_COUNTER_ID or "").strip()
+        if not token or not counter_id:
+            return {"ready": False, "items": [], "error": "METRICA_TOKEN or METRICA_COUNTER_ID is missing"}
+
+        params = {
+            "ids": counter_id,
+            "date1": f"{days}daysAgo",
+            "date2": "yesterday",
+            "metrics": "ym:s:visits,ym:s:users",
+            "dimensions": "ym:s:gender,ym:s:ageInterval",
+            "accuracy": "full",
+            "limit": "100000",
+            "sort": "-ym:s:visits",
+        }
+        headers = {"Authorization": f"OAuth {token}"}
+        try:
+            resp = requests.get("https://api-metrika.yandex.net/stat/v1/data", params=params, headers=headers, timeout=60)
+            resp.raise_for_status()
+            payload = resp.json()
+            rows = payload.get("data", []) or []
+            items: list[dict[str, Any]] = []
+            for row in rows:
+                dims = row.get("dimensions") or []
+                mets = row.get("metrics") or []
+                gender = str((dims[0] or {}).get("name") or "") if len(dims) > 0 else ""
+                age = str((dims[1] or {}).get("name") or "") if len(dims) > 1 else ""
+                visits = int(float(mets[0])) if len(mets) > 0 and mets[0] is not None else 0
+                users = int(float(mets[1])) if len(mets) > 1 and mets[1] is not None else 0
+                items.append(
+                    {
+                        "gender": gender or "unknown",
+                        "age_interval": age or "unknown",
+                        "visits": visits,
+                        "users": users,
+                    }
+                )
+            return {"ready": True, "items": items}
+        except Exception as exc:  # noqa: BLE001
+            return {"ready": False, "items": [], "error": str(exc)}
+
+    @staticmethod
+    def _fetch_metrica_device_mix(days: int, limit: int = 12) -> list[dict[str, Any]]:
+        token = str(Settings.METRICA_TOKEN or "").strip()
+        counter_id = str(Settings.METRICA_COUNTER_ID or "").strip()
+        if not token or not counter_id:
+            return []
+
+        params = {
+            "ids": counter_id,
+            "date1": f"{days}daysAgo",
+            "date2": "yesterday",
+            "metrics": "ym:s:visits,ym:s:users",
+            "dimensions": "ym:s:deviceCategory",
+            "accuracy": "full",
+            "limit": str(max(1, min(int(limit), 50))),
+            "sort": "-ym:s:visits",
+        }
+        headers = {"Authorization": f"OAuth {token}"}
+        try:
+            resp = requests.get("https://api-metrika.yandex.net/stat/v1/data", params=params, headers=headers, timeout=60)
+            resp.raise_for_status()
+            payload = resp.json()
+            rows = payload.get("data", []) or []
+            items: list[dict[str, Any]] = []
+            for row in rows:
+                dims = row.get("dimensions") or []
+                mets = row.get("metrics") or []
+                raw = str((dims[0] or {}).get("name") or "") if len(dims) > 0 else ""
+                visits = int(float(mets[0])) if len(mets) > 0 and mets[0] is not None else 0
+                users = int(float(mets[1])) if len(mets) > 1 and mets[1] is not None else 0
+                items.append({"device_type": raw or "unknown", "visitors": visits, "users": users})
+            return items
+        except Exception:
+            return []
+
+    @staticmethod
+    def _fetch_metrica_mobile_os_mix(days: int, limit: int = 12) -> list[dict[str, Any]]:
+        token = str(Settings.METRICA_TOKEN or "").strip()
+        counter_id = str(Settings.METRICA_COUNTER_ID or "").strip()
+        if not token or not counter_id:
+            return []
+
+        params = {
+            "ids": counter_id,
+            "date1": f"{days}daysAgo",
+            "date2": "yesterday",
+            "metrics": "ym:s:visits,ym:s:users",
+            "dimensions": "ym:s:deviceCategory,ym:s:operatingSystemRoot",
+            "accuracy": "full",
+            "limit": str(max(1000, min(int(limit) * 20, 100000))),
+            "sort": "-ym:s:visits",
+        }
+        headers = {"Authorization": f"OAuth {token}"}
+        try:
+            resp = requests.get("https://api-metrika.yandex.net/stat/v1/data", params=params, headers=headers, timeout=60)
+            resp.raise_for_status()
+            payload = resp.json()
+            rows = payload.get("data", []) or []
+            agg: dict[str, dict[str, int | str]] = {}
+            for row in rows:
+                dims = row.get("dimensions") or []
+                device_raw = str((dims[0] or {}).get("name") or "").strip().lower() if len(dims) > 0 else ""
+                os_raw = str((dims[1] or {}).get("name") or "").strip().lower() if len(dims) > 1 else ""
+                visits = int(float((row.get("metrics") or [0, 0])[0] or 0))
+                users = int(float((row.get("metrics") or [0, 0])[1] or 0))
+
+                if device_raw not in {"2", "mobile devices", "mobile", "smartphones"}:
+                    continue
+
+                if "android" in os_raw:
+                    key = "android"
+                    label = "Android"
+                elif "ios" in os_raw or "apple" in os_raw:
+                    key = "ios"
+                    label = "Apple iOS"
+                elif not os_raw or os_raw == "unknown":
+                    key = "unknown"
+                    label = "Не определено"
+                else:
+                    key = "other"
+                    label = "Другая мобильная ОС"
+
+                if key not in agg:
+                    agg[key] = {"os_root": key, "os_label": label, "visits": 0, "users": 0}
+                agg[key]["visits"] = int(agg[key]["visits"]) + visits
+                agg[key]["users"] = int(agg[key]["users"]) + users
+
+            out = sorted(agg.values(), key=lambda x: int(x["visits"]), reverse=True)
+            return out[: max(1, min(int(limit), 50))]
+        except Exception:
+            return []
+
+    @staticmethod
+    def _fetch_scoring_source_mix(days: int, limit: int = 12) -> list[dict[str, Any]]:
+        conn = get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    select
+                        coalesce(nullif(traffic_source, ''), 'unknown') as source,
+                        count(*)::int as visitors
+                    from mart_visitor_scoring
+                    where scored_at::date >= current_date - (%s::int - 1)
+                    group by 1
+                    order by visitors desc
+                    limit %s
+                    """,
+                    (days, max(1, min(int(limit), 50))),
+                )
+                return [dict(row) for row in cur.fetchall()]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _fetch_scoring_device_mix(days: int, limit: int = 12) -> list[dict[str, Any]]:
+        conn = get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    select
+                        coalesce(nullif(device_type, ''), 'unknown') as device_type,
+                        count(*)::int as visitors
+                    from mart_visitor_scoring
+                    where scored_at::date >= current_date - (%s::int - 1)
+                    group by 1
+                    order by visitors desc
+                    limit %s
+                    """,
+                    (days, max(1, min(int(limit), 50))),
+                )
+                return [dict(row) for row in cur.fetchall()]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
     @staticmethod
     def _upsert_scoring_row(cur, features: VisitorFeatures, score) -> None:
         cur.execute(
@@ -379,6 +1268,7 @@ class ScoringService:
                 utm_source,
                 utm_medium,
                 device_type,
+                os_root,
                 raw_score,
                 normalized_score,
                 segment,
@@ -391,7 +1281,7 @@ class ScoringService:
                 scoring_version,
                 scored_at
             ) values (
-                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now()
+                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now()
             )
             on conflict (visitor_id)
             do update set
@@ -411,6 +1301,7 @@ class ScoringService:
                 utm_source = excluded.utm_source,
                 utm_medium = excluded.utm_medium,
                 device_type = excluded.device_type,
+                os_root = excluded.os_root,
                 raw_score = excluded.raw_score,
                 normalized_score = excluded.normalized_score,
                 segment = excluded.segment,
@@ -441,6 +1332,7 @@ class ScoringService:
                 features.utm_source,
                 features.utm_medium,
                 features.device_type,
+                features.os_root,
                 score.raw_score,
                 score.normalized_score,
                 score.segment,
@@ -470,6 +1362,45 @@ class ScoringService:
             return 0
         finally:
             conn.close()
+
+    @staticmethod
+    def _infer_campaign_id_for_bootstrap() -> int | None:
+        conn = get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    select campaign_id
+                    from stg_direct_campaign_daily
+                    where date >= current_date - 30
+                    group by campaign_id
+                    order by sum(cost) desc nulls last
+                    limit 1
+                    """
+                )
+                row = cur.fetchone() or {}
+                campaign_id = row.get("campaign_id")
+                return int(campaign_id) if campaign_id is not None else None
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _read_direct_mapping() -> dict[str, dict[str, Any]]:
+        raw = (
+            str(os.getenv("SCORING_DIRECT_RETARGET_MAP_JSON", "")).strip()
+            or str(os.getenv("SCORING_DIRECT_RETARGET_MAP", "")).strip()
+        )
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+        except Exception:  # noqa: BLE001
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): (v if isinstance(v, dict) else {}) for k, v in data.items()}
 
 
 _service = ScoringService()
@@ -507,5 +1438,112 @@ def get_scoring_visitor(visitor_id: str) -> dict[str, Any] | None:
     return _service.get_visitor(visitor_id)
 
 
-def get_scoring_timeseries(days: int = 30) -> dict[str, Any]:
+def get_scoring_timeseries(days: int = 90) -> dict[str, Any]:
     return _service.get_timeseries(days=days)
+
+
+def get_scoring_audience_report(days: int = 90) -> dict[str, Any]:
+    return _service.get_audience_report(days=days)
+
+
+def get_scoring_attribution_quality(days: int = 90) -> dict[str, Any]:
+    return _service.get_attribution_quality(days=days)
+
+
+def get_scoring_creative_plan(days: int = 90, limit_per_segment: int = 5) -> dict[str, Any]:
+    return _service.get_creative_plan(days=days, limit_per_segment=limit_per_segment)
+
+
+def get_scoring_audiences_cohorts(days: int = 90) -> dict[str, Any]:
+    return _service.get_audiences_cohorts(days=days)
+
+
+def get_scoring_audience_export(
+    *,
+    days: int = 90,
+    segment: str | None = None,
+    os_root: str | None = None,
+    source: str | None = None,
+    min_score: float | None = None,
+    limit: int = 5000,
+    numeric_only: bool = True,
+) -> dict[str, Any]:
+    return _service.get_audience_export(
+        days=days,
+        segment=segment,
+        os_root=os_root,
+        source=source,
+        min_score=min_score,
+        limit=limit,
+        numeric_only=numeric_only,
+    )
+
+
+def get_scoring_activation_plan(
+    *,
+    days: int = 90,
+    min_audience_size: int = 100,
+    export_limit: int = 5000,
+) -> dict[str, Any]:
+    return _service.get_activation_plan(
+        days=days,
+        min_audience_size=min_audience_size,
+        export_limit=export_limit,
+    )
+
+
+def sync_scoring_activation_to_direct(
+    *,
+    days: int = 90,
+    min_audience_size: int = 100,
+    export_limit: int = 5000,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    return _service.sync_activation_to_direct(
+        days=days,
+        min_audience_size=min_audience_size,
+        export_limit=export_limit,
+        dry_run=dry_run,
+    )
+
+
+def get_scoring_activation_reaction(*, days: int = 30, limit: int = 50) -> dict[str, Any]:
+    return _service.get_activation_reaction(days=days, limit=limit)
+
+
+def bootstrap_scoring_activation_direct(
+    *,
+    days: int = 90,
+    min_audience_size: int = 100,
+    export_limit: int = 5000,
+    campaign_id: int | None = None,
+    region_ids: list[int] | None = None,
+    apply: bool = False,
+    env_path: str = "/home/kv145/traffic-analytics/.env",
+    include_small: bool = False,
+) -> dict[str, Any]:
+    return _service.bootstrap_activation_direct(
+        days=days,
+        min_audience_size=min_audience_size,
+        export_limit=export_limit,
+        campaign_id=campaign_id,
+        region_ids=region_ids,
+        apply=apply,
+        env_path=env_path,
+        include_small=include_small,
+    )
+
+
+def get_scoring_ad_templates(
+    *,
+    days: int = 90,
+    min_audience_size: int = 1,
+    include_small: bool = True,
+    variants: int = 3,
+) -> dict[str, Any]:
+    return _service.get_ad_templates(
+        days=days,
+        min_audience_size=min_audience_size,
+        include_small=include_small,
+        variants=variants,
+    )

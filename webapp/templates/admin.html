@@ -41,7 +41,15 @@
 </button>
 
 <button data-section="scoring" onclick="setSection('scoring')">
-Scoring
+Скоринг
+</button>
+
+<button data-section="scoring_creatives" onclick="setSection('scoring_creatives')">
+Креативы сегментов
+</button>
+
+<button data-section="scoring_templates" onclick="setSection('scoring_templates')">
+Шаблоны объявлений
 </button>
 
 <button data-section="actions" onclick="setSection('actions')">
@@ -70,16 +78,16 @@ Scoring
 <div class="topbar">
 
 <div>
-<div class="title">
+<div class="title" id="topbar-title">
 Центр управления рекламой
 </div>
 
-<div class="subtitle">
+<div class="subtitle" id="topbar-subtitle">
 AI анализирует кампании, предлагает улучшения и управляет рекламой
 </div>
 </div>
 
-<div class="actions">
+<div class="actions" id="topbar-actions">
 
 <a class="btn ghost" href="/" target="_blank">
 Компактная панель
@@ -129,6 +137,8 @@ placeholder="Поиск по кампаниям, объявлениям, гру�
 <section id="section-negatives" class="section"></section>
 <section id="section-forecast" class="section"></section>
 <section id="section-scoring" class="section"></section>
+<section id="section-scoring_creatives" class="section"></section>
+<section id="section-scoring_templates" class="section"></section>
 <section id="section-actions" class="section"></section>
 <section id="section-diagnostics" class="section"></section>
 

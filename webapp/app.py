@@ -10,11 +10,21 @@ from pydantic import BaseModel
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from src.scoring.service import (
+    bootstrap_scoring_activation_direct,
+    get_scoring_ad_templates,
+    get_scoring_activation_plan,
+    get_scoring_activation_reaction,
+    get_scoring_audience_report,
+    get_scoring_audience_export,
+    get_scoring_audiences_cohorts,
+    get_scoring_attribution_quality,
+    get_scoring_creative_plan,
     get_scoring_summary,
     get_scoring_timeseries,
     get_scoring_visitor,
     get_scoring_visitors,
     rebuild_scoring_v1,
+    sync_scoring_activation_to_direct,
 )
 from src.scoring.feature_sync import debug_unknown_attribution_examples, probe_metrica_source_queries
 from src.scoring.report import send_scoring_report
@@ -118,6 +128,17 @@ def admin_page():
 @app.get("/admin/scoring", response_class=HTMLResponse)
 @app.get("/admin/scoring/", response_class=HTMLResponse)
 def admin_scoring_page():
+    return admin_page()
+
+@app.get("/admin/scoring/creatives", response_class=HTMLResponse)
+@app.get("/admin/scoring/creatives/", response_class=HTMLResponse)
+def admin_scoring_creatives_page():
+    return admin_page()
+
+
+@app.get("/admin/scoring/templates", response_class=HTMLResponse)
+@app.get("/admin/scoring/templates/", response_class=HTMLResponse)
+def admin_scoring_templates_page():
     return admin_page()
 
 
@@ -330,9 +351,161 @@ def api_scoring_summary():
 
 
 @app.get("/api/scoring/timeseries")
-def api_scoring_timeseries(days: int = 30):
+def api_scoring_timeseries(days: int = 90):
     safe_days = max(1, min(days, 365))
     return get_scoring_timeseries(days=safe_days)
+
+
+@app.get("/api/scoring/audience")
+def api_scoring_audience(days: int = 90):
+    safe_days = max(1, min(days, 90))
+    return get_scoring_audience_report(days=safe_days)
+
+@app.get("/api/scoring/attribution-quality")
+def api_scoring_attribution_quality(days: int = 90):
+    safe_days = max(1, min(days, 365))
+    return get_scoring_attribution_quality(days=safe_days)
+
+@app.get("/api/scoring/creative-plan")
+def api_scoring_creative_plan(days: int = 90, limit_per_segment: int = 5):
+    safe_days = max(1, min(days, 365))
+    safe_limit = max(1, min(limit_per_segment, 20))
+    return get_scoring_creative_plan(days=safe_days, limit_per_segment=safe_limit)
+
+
+@app.get("/api/scoring/audiences/cohorts")
+def api_scoring_audiences_cohorts(days: int = 90):
+    safe_days = max(1, min(days, 365))
+    return get_scoring_audiences_cohorts(days=safe_days)
+
+
+@app.get("/api/scoring/audiences/export")
+def api_scoring_audiences_export(
+    days: int = 90,
+    segment: str | None = None,
+    os_root: str | None = None,
+    source: str | None = None,
+    min_score: float | None = None,
+    limit: int = 5000,
+    numeric_only: bool = True,
+):
+    safe_days = max(1, min(days, 365))
+    safe_limit = max(1, min(limit, 50000))
+    segment_norm = segment.strip().lower() if segment else None
+    if segment_norm and segment_norm not in ("hot", "warm", "cold"):
+        raise HTTPException(status_code=400, detail="segment must be one of: hot, warm, cold")
+    os_norm = os_root.strip().lower() if os_root else None
+    source_norm = source.strip().lower() if source else None
+    return get_scoring_audience_export(
+        days=safe_days,
+        segment=segment_norm,
+        os_root=os_norm,
+        source=source_norm,
+        min_score=min_score,
+        limit=safe_limit,
+        numeric_only=bool(numeric_only),
+    )
+
+
+@app.get("/api/scoring/activation/plan")
+def api_scoring_activation_plan(
+    days: int = 90,
+    min_audience_size: int = 100,
+    export_limit: int = 5000,
+):
+    safe_days = max(1, min(days, 365))
+    safe_min = max(1, min(min_audience_size, 100000))
+    safe_export_limit = max(1, min(export_limit, 50000))
+    return get_scoring_activation_plan(
+        days=safe_days,
+        min_audience_size=safe_min,
+        export_limit=safe_export_limit,
+    )
+
+
+@app.get("/api/scoring/activation/reaction")
+def api_scoring_activation_reaction(days: int = 30, limit: int = 50):
+    safe_days = max(1, min(days, 365))
+    safe_limit = max(1, min(limit, 200))
+    return get_scoring_activation_reaction(days=safe_days, limit=safe_limit)
+
+
+@app.get("/api/scoring/ad-templates")
+def api_scoring_ad_templates(
+    days: int = 90,
+    min_audience_size: int = 1,
+    include_small: bool = True,
+    variants: int = 3,
+):
+    safe_days = max(1, min(days, 365))
+    safe_min = max(1, min(min_audience_size, 100000))
+    safe_variants = max(1, min(variants, 5))
+    return get_scoring_ad_templates(
+        days=safe_days,
+        min_audience_size=safe_min,
+        include_small=bool(include_small),
+        variants=safe_variants,
+    )
+
+
+class ScoringActivationSyncIn(BaseModel):
+    days: int = 90
+    min_audience_size: int = 100
+    export_limit: int = 5000
+    dry_run: bool = True
+
+
+@app.post("/api/scoring/activation/direct-sync")
+def api_scoring_activation_direct_sync(payload: ScoringActivationSyncIn | None = None):
+    body = payload or ScoringActivationSyncIn()
+    safe_days = max(1, min(body.days, 365))
+    safe_min = max(1, min(body.min_audience_size, 100000))
+    safe_export_limit = max(1, min(body.export_limit, 50000))
+
+    result = sync_scoring_activation_to_direct(
+        days=safe_days,
+        min_audience_size=safe_min,
+        export_limit=safe_export_limit,
+        dry_run=bool(body.dry_run),
+    )
+    if not result.get("ok", True) and result.get("ready", True):
+        raise HTTPException(status_code=500, detail=result.get("error", "direct sync failed"))
+    return result
+
+
+class ScoringActivationBootstrapIn(BaseModel):
+    days: int = 90
+    min_audience_size: int = 100
+    export_limit: int = 5000
+    campaign_id: int | None = None
+    region_ids: list[int] | None = None
+    apply: bool = False
+    include_small: bool = False
+    env_path: str = "/home/kv145/traffic-analytics/.env"
+
+
+@app.post("/api/scoring/activation/bootstrap-direct")
+def api_scoring_activation_bootstrap_direct(payload: ScoringActivationBootstrapIn | None = None):
+    body = payload or ScoringActivationBootstrapIn()
+    safe_days = max(1, min(body.days, 365))
+    safe_min = max(1, min(body.min_audience_size, 100000))
+    safe_export_limit = max(1, min(body.export_limit, 50000))
+    safe_regions = [int(x) for x in (body.region_ids or [0]) if isinstance(x, int) or str(x).lstrip("-").isdigit()]
+    if not safe_regions:
+        safe_regions = [0]
+    result = bootstrap_scoring_activation_direct(
+        days=safe_days,
+        min_audience_size=safe_min,
+        export_limit=safe_export_limit,
+        campaign_id=body.campaign_id,
+        region_ids=safe_regions,
+        apply=bool(body.apply),
+        env_path=body.env_path or "/home/kv145/traffic-analytics/.env",
+        include_small=bool(body.include_small),
+    )
+    if not result.get("ok", True):
+        raise HTTPException(status_code=500, detail=result.get("error", "bootstrap direct failed"))
+    return result
 
 
 @app.get("/api/scoring/visitors")
@@ -348,7 +521,7 @@ class ScoringRebuildIn(BaseModel):
     use_fallback: bool = True
     send_report: bool = False
     sync_features: bool = True
-    features_days: int = 30
+    features_days: int = 90
     features_limit: int = 50000
 
 

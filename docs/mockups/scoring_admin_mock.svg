@@ -1,0 +1,92 @@
+<svg width="1440" height="1024" viewBox="0 0 1440 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1440" height="1024" fill="#F4F6FB"/>
+
+  <rect x="40" y="28" width="1360" height="72" rx="14" fill="#FFFFFF" stroke="#DBE1EA"/>
+  <text x="64" y="58" font-family="Comfortaa, sans-serif" font-size="26" font-weight="700" fill="#1F2937">Скоринг посетителей</text>
+  <text x="64" y="82" font-family="Comfortaa, sans-serif" font-size="13" fill="#64748B">Оценка вероятности покупки и рекомендации для маркетинга</text>
+
+  <rect x="972" y="46" width="132" height="36" rx="10" fill="#EEF2FF" stroke="#C7D2FE"/>
+  <text x="992" y="69" font-family="Comfortaa, sans-serif" font-size="12" fill="#334155">Открыть обзор</text>
+
+  <rect x="1116" y="46" width="126" height="36" rx="10" fill="#FFFFFF" stroke="#DBE1EA"/>
+  <text x="1142" y="69" font-family="Comfortaa, sans-serif" font-size="12" fill="#334155">Обновить</text>
+
+  <rect x="1252" y="46" width="124" height="36" rx="10" fill="#2563EB"/>
+  <text x="1270" y="69" font-family="Comfortaa, sans-serif" font-size="12" fill="#FFFFFF">Пересчитать</text>
+
+  <rect x="40" y="118" width="334" height="96" rx="14" fill="#FFFFFF" stroke="#DBE1EA"/>
+  <text x="62" y="147" font-family="Comfortaa, sans-serif" font-size="13" fill="#64748B">Горячие</text>
+  <text x="62" y="190" font-family="Comfortaa, sans-serif" font-size="38" font-weight="700" fill="#16A34A">142</text>
+
+  <rect x="390" y="118" width="334" height="96" rx="14" fill="#FFFFFF" stroke="#DBE1EA"/>
+  <text x="412" y="147" font-family="Comfortaa, sans-serif" font-size="13" fill="#64748B">Тёплые</text>
+  <text x="412" y="190" font-family="Comfortaa, sans-serif" font-size="38" font-weight="700" fill="#D97706">589</text>
+
+  <rect x="740" y="118" width="334" height="96" rx="14" fill="#FFFFFF" stroke="#DBE1EA"/>
+  <text x="762" y="147" font-family="Comfortaa, sans-serif" font-size="13" fill="#64748B">Холодные</text>
+  <text x="762" y="190" font-family="Comfortaa, sans-serif" font-size="38" font-weight="700" fill="#64748B">1756</text>
+
+  <rect x="1090" y="118" width="310" height="96" rx="14" fill="#FFFFFF" stroke="#DBE1EA"/>
+  <text x="1112" y="147" font-family="Comfortaa, sans-serif" font-size="13" fill="#64748B">Средний скор</text>
+  <text x="1112" y="190" font-family="Comfortaa, sans-serif" font-size="38" font-weight="700" fill="#1F2937">0.47</text>
+
+  <rect x="40" y="230" width="840" height="250" rx="14" fill="#FFFFFF" stroke="#DBE1EA"/>
+  <text x="62" y="260" font-family="Comfortaa, sans-serif" font-size="15" font-weight="700" fill="#1F2937">Динамика сегментов за 30 дней</text>
+  <rect x="62" y="276" width="796" height="180" rx="10" fill="#F8FAFC" stroke="#E2E8F0"/>
+  <polyline points="88,430 180,390 270,402 360,340 450,360 540,322 630,300 720,270 820,248" fill="none" stroke="#16A34A" stroke-width="3"/>
+  <polyline points="88,446 180,420 270,430 360,390 450,395 540,382 630,370 720,350 820,332" fill="none" stroke="#D97706" stroke-width="3"/>
+  <polyline points="88,452 180,446 270,442 360,438 450,435 540,430 630,424 720,417 820,405" fill="none" stroke="#94A3B8" stroke-width="3"/>
+
+  <rect x="896" y="230" width="504" height="250" rx="14" fill="#FFFFFF" stroke="#DBE1EA"/>
+  <text x="918" y="260" font-family="Comfortaa, sans-serif" font-size="15" font-weight="700" fill="#1F2937">Распределение сегментов</text>
+  <circle cx="1148" cy="360" r="84" fill="#E2E8F0"/>
+  <path d="M1148,360 L1148,276 A84,84 0 0,1 1220,403 Z" fill="#16A34A"/>
+  <path d="M1148,360 L1220,403 A84,84 0 0,1 1082,433 Z" fill="#D97706"/>
+  <path d="M1148,360 L1082,433 A84,84 0 1,1 1148,276 Z" fill="#94A3B8"/>
+  <text x="1260" y="330" font-family="Comfortaa, sans-serif" font-size="12" fill="#16A34A">Горячие</text>
+  <text x="1260" y="356" font-family="Comfortaa, sans-serif" font-size="12" fill="#D97706">Тёплые</text>
+  <text x="1260" y="382" font-family="Comfortaa, sans-serif" font-size="12" fill="#64748B">Холодные</text>
+
+  <rect x="40" y="496" width="1360" height="180" rx="14" fill="#FFFFFF" stroke="#DBE1EA"/>
+  <text x="62" y="526" font-family="Comfortaa, sans-serif" font-size="15" font-weight="700" fill="#1F2937">Аудитория Метрики (агрегатно)</text>
+  <text x="62" y="548" font-family="Comfortaa, sans-serif" font-size="12" fill="#64748B">Пол / Возраст / Визиты / Пользователи</text>
+  <rect x="62" y="560" width="890" height="92" rx="10" fill="#F8FAFC" stroke="#E2E8F0"/>
+  <text x="80" y="590" font-family="Comfortaa, sans-serif" font-size="12" fill="#334155">female · 35-44</text>
+  <text x="320" y="590" font-family="Comfortaa, sans-serif" font-size="12" fill="#334155">363 визита</text>
+  <text x="460" y="590" font-family="Comfortaa, sans-serif" font-size="12" fill="#334155">277 пользователей</text>
+  <text x="80" y="620" font-family="Comfortaa, sans-serif" font-size="12" fill="#334155">female · 25-34</text>
+  <text x="320" y="620" font-family="Comfortaa, sans-serif" font-size="12" fill="#334155">257 визитов</text>
+  <text x="460" y="620" font-family="Comfortaa, sans-serif" font-size="12" fill="#334155">227 пользователей</text>
+
+  <rect x="968" y="560" width="208" height="92" rx="10" fill="#F8FAFC" stroke="#E2E8F0"/>
+  <text x="986" y="584" font-family="Comfortaa, sans-serif" font-size="12" fill="#64748B">Топ source</text>
+  <text x="986" y="608" font-family="Comfortaa, sans-serif" font-size="12" fill="#334155">direct: 2346</text>
+  <text x="986" y="628" font-family="Comfortaa, sans-serif" font-size="12" fill="#334155">unknown: 175</text>
+
+  <rect x="1192" y="560" width="188" height="92" rx="10" fill="#F8FAFC" stroke="#E2E8F0"/>
+  <text x="1210" y="584" font-family="Comfortaa, sans-serif" font-size="12" fill="#64748B">Топ device</text>
+  <text x="1210" y="608" font-family="Comfortaa, sans-serif" font-size="12" fill="#334155">unknown: 2521</text>
+
+  <rect x="40" y="692" width="1360" height="300" rx="14" fill="#FFFFFF" stroke="#DBE1EA"/>
+  <text x="62" y="722" font-family="Comfortaa, sans-serif" font-size="15" font-weight="700" fill="#1F2937">Таблица посетителей</text>
+  <rect x="62" y="738" width="1316" height="230" rx="10" fill="#F8FAFC" stroke="#E2E8F0"/>
+  <text x="80" y="764" font-family="Comfortaa, sans-serif" font-size="11" fill="#64748B">Посетитель</text>
+  <text x="280" y="764" font-family="Comfortaa, sans-serif" font-size="11" fill="#64748B">Скор</text>
+  <text x="350" y="764" font-family="Comfortaa, sans-serif" font-size="11" fill="#64748B">Сегмент</text>
+  <text x="460" y="764" font-family="Comfortaa, sans-serif" font-size="11" fill="#64748B">Причина</text>
+  <text x="620" y="764" font-family="Comfortaa, sans-serif" font-size="11" fill="#64748B">Почему такой скор</text>
+  <text x="920" y="764" font-family="Comfortaa, sans-serif" font-size="11" fill="#64748B">Рекомендация</text>
+  <text x="1140" y="764" font-family="Comfortaa, sans-serif" font-size="11" fill="#64748B">Источник</text>
+  <text x="1260" y="764" font-family="Comfortaa, sans-serif" font-size="11" fill="#64748B">Рассчитан</text>
+
+  <rect x="80" y="786" width="1270" height="34" rx="8" fill="#FFFFFF" stroke="#E2E8F0"/>
+  <text x="92" y="808" font-family="Comfortaa, sans-serif" font-size="11" fill="#1F2937">1773833548908722637</text>
+  <text x="282" y="808" font-family="Comfortaa, sans-serif" font-size="11" fill="#1F2937">0.82</text>
+  <rect x="346" y="793" width="74" height="20" rx="999" fill="#DCFCE7"/>
+  <text x="362" y="807" font-family="Comfortaa, sans-serif" font-size="10" fill="#166534">Горячий</text>
+  <text x="460" y="808" font-family="Comfortaa, sans-serif" font-size="11" fill="#1F2937">booking_intent</text>
+  <text x="620" y="808" font-family="Comfortaa, sans-serif" font-size="11" fill="#334155">Был на цене и бронировании...</text>
+  <text x="920" y="808" font-family="Comfortaa, sans-serif" font-size="11" fill="#334155">Сильный CTA + follow-up</text>
+  <text x="1140" y="808" font-family="Comfortaa, sans-serif" font-size="11" fill="#334155">yandex_direct</text>
+  <text x="1260" y="808" font-family="Comfortaa, sans-serif" font-size="11" fill="#334155">2026-03-20</text>
+</svg>

@@ -258,6 +258,66 @@ a{color:inherit;text-decoration:none}
   border-radius:18px;
 }
 
+body.scoring-standalone{
+  --bg:#f4f6fb;
+  --panel:#ffffff;
+  --panel-2:#f8fafc;
+  --line:#dbe1ea;
+  --text:#1f2937;
+  --muted:#64748b;
+  --accent:#2563eb;
+}
+
+body.scoring-standalone .shell{
+  grid-template-columns:1fr;
+}
+
+body.scoring-standalone .sidebar{
+  display:none;
+}
+
+body.scoring-standalone .search-row,
+body.scoring-standalone #summary-cards,
+body.scoring-standalone #section-overview,
+body.scoring-standalone #section-creatives,
+body.scoring-standalone #section-structure,
+body.scoring-standalone #section-negatives,
+body.scoring-standalone #section-forecast,
+body.scoring-standalone #section-actions,
+body.scoring-standalone #section-diagnostics{
+  display:none !important;
+}
+
+body.scoring-standalone .topbar{
+  margin-bottom:12px;
+}
+
+body.scoring-standalone .tabulator{
+  background:#ffffff;
+  border:1px solid #dbe1ea;
+  color:#1f2937;
+  border-radius:14px;
+}
+
+body.scoring-standalone .tabulator .tabulator-header{
+  background:#f1f5f9;
+  border-bottom:1px solid #dbe1ea;
+}
+
+body.scoring-standalone .tabulator .tabulator-col{
+  background:#f1f5f9;
+  color:#334155;
+  border-right:1px solid #e2e8f0;
+}
+
+body.scoring-standalone .tabulator .tabulator-row{
+  border-bottom:1px solid #e5e7eb;
+}
+
+body.scoring-standalone .tabulator .tabulator-row:hover{
+  background:#eef2f7 !important;
+}
+
 .table{
   width:100%;
   border-collapse:collapse;
