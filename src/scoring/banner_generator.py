@@ -27,13 +27,6 @@ def _openai_base_url() -> str:
     if explicit:
         return explicit.rstrip("/")
 
-    # Reuse existing base if configured (project already uses OPENAI_BASE_URL in other scripts).
-    base = str(os.getenv("OPENAI_BASE_URL", "")).strip().rstrip("/")
-    if base:
-        if base.endswith("/v1"):
-            return base
-        return f"{base}/v1"
-
     return "https://api.openai.com/v1"
 
 
@@ -227,5 +220,5 @@ def generate_template_banners(
         "failed_count": len(failed),
         "generated": generated,
         "failed": failed,
+        "error": (failed[0].get("error") if failed and not generated else None),
     }
-
