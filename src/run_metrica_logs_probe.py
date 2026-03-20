@@ -46,84 +46,26 @@ def _safe_json(resp: requests.Response) -> dict[str, Any]:
         return {}
 
 
-def _extract_field_names(data: dict[str, Any], source: str) -> list[str]:
-    # API often returns {"log_request_fields":[{"field":"ym:s:..."}]}
-    for key in ("log_request_fields", "fields", "data"):
-        raw = data.get(key)
-        if isinstance(raw, list):
-            out: list[str] = []
-            for item in raw:
-                if isinstance(item, dict):
-                    value = str(item.get("field") or item.get("name") or "").strip()
-                else:
-                    value = str(item or "").strip()
-                if value:
-                    out.append(value)
-            if out:
-                return out
-    # conservative fallback
+def _candidate_field_sets(source: str) -> list[list[str]]:
     if source == "visits":
         return [
-            "ym:s:ClientID",
-            "ym:s:VisitID",
-            "ym:s:StartURL",
-            "ym:s:Referer",
-            "ym:s:TrafficSourceID",
-            "ym:s:AdvEngineID",
-            "ym:s:UTMSource",
-            "ym:s:UTMMedium",
-            "ym:s:UTMCampaign",
+            [
+                "ym:s:clientID",
+                "ym:s:visitID",
+                "ym:s:lastTrafficSource",
+                "ym:s:lastAdvEngine",
+                "ym:s:lastUTMSource",
+                "ym:s:lastUTMMedium",
+                "ym:s:startURL",
+                "ym:s:referer",
+            ],
+            ["ym:s:clientID", "ym:s:visitID", "ym:s:startURL", "ym:s:referer"],
+            ["ym:s:clientID", "ym:s:visitID", "ym:s:startURL"],
         ]
     return [
-        "ym:pv:ClientID",
-        "ym:pv:VisitID",
-        "ym:pv:URL",
-        "ym:pv:Referer",
-        "ym:pv:TrafficSourceID",
-        "ym:pv:AdvEngineID",
-        "ym:pv:UTMSource",
-        "ym:pv:UTMMedium",
-        "ym:pv:UTMCampaign",
+        ["ym:pv:URL", "ym:pv:visitID", "ym:pv:referer"],
+        ["ym:pv:URL", "ym:pv:visitID"],
     ]
-
-
-def _get_available_fields(token: str, counter_id: str, source: str) -> list[str]:
-    url = MGMT_BASE.format(counter_id=counter_id) + "/fields"
-    resp = requests.get(url, params={"source": source}, headers=_headers(token), timeout=60)
-    if resp.status_code >= 400:
-        return _extract_field_names({}, source=source)
-    data = _safe_json(resp)
-    fields = _extract_field_names(data, source=source)
-    return fields or _extract_field_names({}, source=source)
-
-
-def _pick_fields(available: list[str], source: str) -> list[str]:
-    wanted_visits = [
-        "ym:s:ClientID",
-        "ym:s:VisitID",
-        "ym:s:StartURL",
-        "ym:s:Referer",
-        "ym:s:TrafficSourceID",
-        "ym:s:AdvEngineID",
-        "ym:s:UTMSource",
-        "ym:s:UTMMedium",
-        "ym:s:UTMCampaign",
-    ]
-    wanted_hits = [
-        "ym:pv:ClientID",
-        "ym:pv:VisitID",
-        "ym:pv:URL",
-        "ym:pv:Referer",
-        "ym:pv:TrafficSourceID",
-        "ym:pv:AdvEngineID",
-        "ym:pv:UTMSource",
-        "ym:pv:UTMMedium",
-        "ym:pv:UTMCampaign",
-    ]
-    wanted = wanted_visits if source == "visits" else wanted_hits
-    available_set = set(available)
-    selected = [field for field in wanted if field in available_set]
-    return selected or wanted[:5]
 
 
 def _create_logrequest(token: str, counter_id: str, source: str, fields: list[str], date1: str, date2: str) -> int:
@@ -133,6 +75,23 @@ def _create_logrequest(token: str, counter_id: str, source: str, fields: list[st
     resp.raise_for_status()
     data = _safe_json(resp)
     return int((data.get("log_request") or {}).get("request_id") or 0)
+
+
+def _create_logrequest_with_fallback(
+    token: str, counter_id: str, source: str, date1: str, date2: str
+) -> tuple[int, list[str]]:
+    errors: list[str] = []
+    for fields in _candidate_field_sets(source):
+        url = MGMT_BASE.format(counter_id=counter_id)
+        payload = {"source": source, "fields": ",".join(fields), "date1": date1, "date2": date2}
+        resp = requests.post(url, params=payload, headers=_headers(token), timeout=60)
+        if resp.status_code < 300:
+            data = _safe_json(resp)
+            request_id = int((data.get("log_request") or {}).get("request_id") or 0)
+            if request_id:
+                return request_id, fields
+        errors.append(f"{resp.status_code}:{resp.text[:180].replace(chr(10), ' ')}")
+    raise RuntimeError(f"logrequest create failed for source={source}; errors={errors}")
 
 
 def _poll_logrequest(token: str, counter_id: str, request_id: int, timeout_sec: int = 180) -> dict[str, Any]:
@@ -194,15 +153,8 @@ def _has_any(columns: list[str], keys: list[str]) -> bool:
 def _probe_source(token: str, counter_id: str, source: str, date1: str, date2: str, sample_limit: int) -> ProbeResult:
     request_id = 0
     try:
-        available = _get_available_fields(token=token, counter_id=counter_id, source=source)
-        fields = _pick_fields(available=available, source=source)
-        request_id = _create_logrequest(
-            token=token,
-            counter_id=counter_id,
-            source=source,
-            fields=fields,
-            date1=date1,
-            date2=date2,
+        request_id, _ = _create_logrequest_with_fallback(
+            token=token, counter_id=counter_id, source=source, date1=date1, date2=date2
         )
         meta = _poll_logrequest(token=token, counter_id=counter_id, request_id=request_id)
         log_request = meta.get("log_request") or {}
