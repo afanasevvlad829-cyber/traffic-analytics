@@ -189,9 +189,22 @@ Fallback нужен, чтобы модуль работал даже до поя
   - `variants[]` (угол, headline, body, CTA, why_this),
   - `kpi_hypothesis`:
     - baseline (impressions/clicks/CTR/CPC/cost),
-    - expected targets (CTR(STR), CVR, CPC, CPA),
+    - expected targets (CTR(STR), CR клик->заявка, CPC, CPL, CAC),
     - sample gate (минимум показов/кликов),
     - success_rule (критерий сравнения).
+
+### Бизнес-параметры KPI (текущая версия)
+
+- Средний чек: `75 000 ₽`
+- Маржа: `25%`
+- CR заявка->оплата: `30%`
+- Целевой CAC оплаты: `5 000 ₽`
+- Максимальный CAC оплаты: `10 000 ₽`
+
+Из этого автоматически считаются пороги:
+
+- `target CPL = 1 500 ₽`, `max CPL = 3 000 ₽`
+- `target/max CPC` — через сегментный CR клик->заявка (пока модельный, до подгрузки факта из Метрики/CRM).
 
 ## WebApp
 

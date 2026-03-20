@@ -37,50 +37,88 @@ def build_kpi_hypothesis(
     reason = (short_reason or "").lower().strip()
     baseline = baseline or {}
 
+    # Бизнес-входы (из текущих договоренностей):
+    # средний чек 75 000 ₽, маржа 25%, CR заявка->оплата 30%,
+    # допустимый CAC оплаты до 10 000 ₽, целевой CAC оплаты 5 000 ₽.
+    avg_check_rub = 75_000.0
+    margin_pct = 25.0
+    lead_to_payment_cvr_pct = 30.0
+    max_cac_pay_rub = 10_000.0
+    target_cac_pay_rub = 5_000.0
+    margin_rub = round(avg_check_rub * margin_pct / 100.0, 2)
+    max_marketing_share_of_margin_pct = round((max_cac_pay_rub / margin_rub) * 100.0, 2) if margin_rub > 0 else 0.0
+
     if s == "hot":
         objective = "Дожим до заявки/бронирования"
-        expected = {
-            "ctr_str_min_pct": 3.2,
-            "ctr_str_target_pct": 4.0,
-            "cvr_to_lead_min_pct": 8.0,
-            "cvr_to_lead_target_pct": 12.0,
-            "avg_cpc_max_rub": 120.0,
-            "target_cpa_rub": 1000.0,
-        }
+        ctr_str_min_pct = 3.2
+        ctr_str_target_pct = 4.0
+        click_to_lead_min_pct = 8.0
+        click_to_lead_target_pct = 10.0
         sample_gate = {"min_impressions": 3000, "min_clicks": 80}
-        success_rule = (
-            "Успех: CTR(STR) >= 4.0%, CVR в заявку >= 12% и CPA <= 1000 ₽ "
-            "после набора статистики."
-        )
     elif s == "warm":
         objective = "Перевод в заявку через контент/доверие"
-        expected = {
-            "ctr_str_min_pct": 2.4,
-            "ctr_str_target_pct": 3.2,
-            "cvr_to_lead_min_pct": 4.0,
-            "cvr_to_lead_target_pct": 7.0,
-            "avg_cpc_max_rub": 150.0,
-            "target_cpa_rub": 1500.0,
-        }
+        ctr_str_min_pct = 2.4
+        ctr_str_target_pct = 3.2
+        click_to_lead_min_pct = 4.0
+        click_to_lead_target_pct = 5.5
         sample_gate = {"min_impressions": 4000, "min_clicks": 100}
-        success_rule = (
-            "Успех: CTR(STR) >= 3.2%, CVR в заявку >= 7% и CPA <= 1500 ₽ "
-            "на окне теста."
-        )
     else:
         objective = "Прогрев и квалификация аудитории"
-        expected = {
-            "ctr_str_min_pct": 1.6,
-            "ctr_str_target_pct": 2.2,
-            "cvr_to_lead_min_pct": 1.5,
-            "cvr_to_lead_target_pct": 3.0,
-            "avg_cpc_max_rub": 180.0,
-            "target_cpa_rub": 2500.0,
-        }
+        ctr_str_min_pct = 1.6
+        ctr_str_target_pct = 2.2
+        click_to_lead_min_pct = 1.5
+        click_to_lead_target_pct = 2.5
         sample_gate = {"min_impressions": 5000, "min_clicks": 120}
+
+    # Формулы:
+    # CPL = CAC_оплаты * CR(заявка->оплата)
+    # CPC = CPL * CR(клик->заявка)
+    target_cpl_rub = round(target_cac_pay_rub * lead_to_payment_cvr_pct / 100.0, 2)
+    max_cpl_rub = round(max_cac_pay_rub * lead_to_payment_cvr_pct / 100.0, 2)
+    target_cpc_rub = round(target_cpl_rub * click_to_lead_target_pct / 100.0, 2)
+    max_cpc_rub = round(max_cpl_rub * click_to_lead_min_pct / 100.0, 2)
+
+    expected = {
+        "ctr_str_min_pct": ctr_str_min_pct,
+        "ctr_str_target_pct": ctr_str_target_pct,
+        "click_to_lead_min_pct": click_to_lead_min_pct,
+        "click_to_lead_target_pct": click_to_lead_target_pct,
+        # backward compatibility for older UI blocks
+        "cvr_to_lead_min_pct": click_to_lead_min_pct,
+        "cvr_to_lead_target_pct": click_to_lead_target_pct,
+        "lead_to_payment_cvr_pct": lead_to_payment_cvr_pct,
+        "target_cpl_rub": target_cpl_rub,
+        "max_cpl_rub": max_cpl_rub,
+        "target_cpc_rub": target_cpc_rub,
+        "max_cpc_rub": max_cpc_rub,
+        "avg_cpc_max_rub": max_cpc_rub,
+        "target_cac_pay_rub": target_cac_pay_rub,
+        "max_cac_pay_rub": max_cac_pay_rub,
+        # backward compatibility name
+        "target_cpa_rub": target_cac_pay_rub,
+    }
+
+    if s == "hot":
+        expected = {
+            **expected,
+            "click_to_lead_target_pct": 10.0,
+            "cvr_to_lead_target_pct": 10.0,
+        }
         success_rule = (
-            "Успех: CTR(STR) >= 2.2%, CVR в заявку >= 3% и CPA <= 2500 ₽ "
-            "при контроле качества трафика."
+            f"Успех: CPL <= {target_cpl_rub:.0f} ₽ и CAC оплаты <= {target_cac_pay_rub:.0f} ₽, "
+            f"при CR клик->заявка >= {expected['click_to_lead_target_pct']:.1f}% и CTR(STR) >= {ctr_str_target_pct:.1f}%."
+        )
+    elif s == "warm":
+        expected = {**expected}
+        success_rule = (
+            f"Успех: CPL <= {target_cpl_rub:.0f} ₽ и CAC оплаты <= {target_cac_pay_rub:.0f} ₽, "
+            f"при CR клик->заявка >= {expected['click_to_lead_target_pct']:.1f}% и CTR(STR) >= {ctr_str_target_pct:.1f}%."
+        )
+    else:
+        expected = {**expected}
+        success_rule = (
+            f"Успех: CPL <= {max_cpl_rub:.0f} ₽ и CAC оплаты <= {max_cac_pay_rub:.0f} ₽, "
+            f"при CR клик->заявка >= {expected['click_to_lead_target_pct']:.1f}% и CTR(STR) >= {ctr_str_target_pct:.1f}%."
         )
 
     baseline_payload = {
@@ -92,12 +130,13 @@ def build_kpi_hypothesis(
     }
 
     primary_metrics = [
-        {"key": "ctr_str_pct", "label": "CTR (STR)", "why": "Показывает отклик на объявление."},
-        {"key": "cvr_to_lead_pct", "label": "CVR в заявку", "why": "Главный маркер качественного трафика."},
-        {"key": "cpa_rub", "label": "CPA", "why": "Контроль стоимости результата."},
+        {"key": "cpl_rub", "label": "Цена заявки (CPL)", "why": "Главная метрика стоимости лида."},
+        {"key": "cac_pay_rub", "label": "Цена оплаты (CAC)", "why": "Контроль экономики продаж."},
+        {"key": "click_to_lead_pct", "label": "CR клик->заявка", "why": "Качество трафика и посадочной."},
     ]
     secondary_metrics = [
-        {"key": "avg_cpc_rub", "label": "CPC", "why": "Контроль цены клика при масштабировании."},
+        {"key": "ctr_str_pct", "label": "CTR (STR)", "why": "Показывает отклик на объявление."},
+        {"key": "avg_cpc_rub", "label": "Цена клика (CPC)", "why": "Контроль цены трафика."},
         {"key": "impressions", "label": "Показы", "why": "Проверка статистической значимости теста."},
         {"key": "clicks", "label": "Клики", "why": "База для расчёта CTR/CVR."},
     ]
@@ -109,11 +148,21 @@ def build_kpi_hypothesis(
         "source_context": src,
         "angle_context": nuance,
         "sample_gate": sample_gate,
+        "economics": {
+            "avg_check_rub": avg_check_rub,
+            "margin_pct": margin_pct,
+            "margin_rub": margin_rub,
+            "max_marketing_share_of_margin_pct": max_marketing_share_of_margin_pct,
+        },
         "baseline": baseline_payload,
         "expected": expected,
         "primary_metrics": primary_metrics,
         "secondary_metrics": secondary_metrics,
         "success_rule": success_rule,
+        "data_gap_note": (
+            "CR клик->заявка пока модельный (по сегментам). "
+            "После расчета факта из Метрики/CRM обновить target/max автоматически."
+        ),
     }
 
 

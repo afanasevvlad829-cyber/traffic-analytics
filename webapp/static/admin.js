@@ -1160,6 +1160,11 @@ source_hint: ${esc(sourceLabel(row.source_hint || 'unknown'))}</div>
           <div class="code">Цель: ${esc(row.kpi_hypothesis?.objective || '-')}
 Окно сравнения: ${esc(row.kpi_hypothesis?.comparison_window_days || '-')}д
 
+Экономика:
+- Средний чек: ${esc(numText(row.kpi_hypothesis?.economics?.avg_check_rub, 0))} ₽
+- Маржа: ${esc(numText(row.kpi_hypothesis?.economics?.margin_pct, 0))}% (${esc(numText(row.kpi_hypothesis?.economics?.margin_rub, 0))} ₽)
+- Доля CAC от маржи (потолок): ${esc(numText(row.kpi_hypothesis?.economics?.max_marketing_share_of_margin_pct, 1))}%
+
 Baseline (если уже есть реакция):
 - Показы: ${esc(row.kpi_hypothesis?.baseline?.impressions ?? '-')}
 - Клики: ${esc(row.kpi_hypothesis?.baseline?.clicks ?? '-')}
@@ -1169,9 +1174,11 @@ Baseline (если уже есть реакция):
 
 Что ожидаем:
 - CTR(STR): >= ${esc(numText(row.kpi_hypothesis?.expected?.ctr_str_min_pct, 2))}% (target ${esc(numText(row.kpi_hypothesis?.expected?.ctr_str_target_pct, 2))}%)
-- CVR в заявку: >= ${esc(numText(row.kpi_hypothesis?.expected?.cvr_to_lead_min_pct, 2))}% (target ${esc(numText(row.kpi_hypothesis?.expected?.cvr_to_lead_target_pct, 2))}%)
-- CPC: <= ${esc(numText(row.kpi_hypothesis?.expected?.avg_cpc_max_rub, 2))} ₽
-- CPA: <= ${esc(numText(row.kpi_hypothesis?.expected?.target_cpa_rub, 2))} ₽
+- CR клик->заявка: >= ${esc(numText(row.kpi_hypothesis?.expected?.click_to_lead_min_pct ?? row.kpi_hypothesis?.expected?.cvr_to_lead_min_pct, 2))}% (target ${esc(numText(row.kpi_hypothesis?.expected?.click_to_lead_target_pct ?? row.kpi_hypothesis?.expected?.cvr_to_lead_target_pct, 2))}%)
+- Цена клика (CPC): target <= ${esc(numText(row.kpi_hypothesis?.expected?.target_cpc_rub, 2))} ₽ (max ${esc(numText(row.kpi_hypothesis?.expected?.max_cpc_rub ?? row.kpi_hypothesis?.expected?.avg_cpc_max_rub, 2))} ₽)
+- Цена заявки (CPL): target <= ${esc(numText(row.kpi_hypothesis?.expected?.target_cpl_rub, 2))} ₽ (max ${esc(numText(row.kpi_hypothesis?.expected?.max_cpl_rub, 2))} ₽)
+- Цена оплаты (CAC): target <= ${esc(numText(row.kpi_hypothesis?.expected?.target_cac_pay_rub ?? row.kpi_hypothesis?.expected?.target_cpa_rub, 2))} ₽ (max ${esc(numText(row.kpi_hypothesis?.expected?.max_cac_pay_rub, 2))} ₽)
+- CR заявка->оплата (модель): ${esc(numText(row.kpi_hypothesis?.expected?.lead_to_payment_cvr_pct, 2))}%
 
 Минимум для оценки:
 - Показы: ${esc(row.kpi_hypothesis?.sample_gate?.min_impressions ?? '-')}
@@ -1182,7 +1189,10 @@ Baseline (если уже есть реакция):
 - Дополнительно: ${esc(((row.kpi_hypothesis?.secondary_metrics || []).map(m => m.label).join(', ')) || '-')}
 
 Критерий успеха:
-${esc(row.kpi_hypothesis?.success_rule || '-')}</div>
+${esc(row.kpi_hypothesis?.success_rule || '-')}
+
+Примечание:
+${esc(row.kpi_hypothesis?.data_gap_note || '-')}</div>
         </div>
 
         <div class="table-wrap" style="margin-top:10px">
