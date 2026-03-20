@@ -107,7 +107,11 @@ def generate_template_banners(
     output_format: str = "png",
     timeout: int = 180,
 ) -> dict[str, Any]:
-    token = str(os.getenv("OPENAI_API_KEY", "")).strip() or str(os.getenv("OPENAI_KEY", "")).strip()
+    token = (
+        str(os.getenv("OPENAI_IMAGE_API_KEY", "")).strip()
+        or str(os.getenv("OPENAI_API_KEY", "")).strip()
+        or str(os.getenv("OPENAI_KEY", "")).strip()
+    )
     if not token:
         return {
             "ok": False,

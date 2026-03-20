@@ -222,7 +222,8 @@ Fallback нужен, чтобы модуль работал даже до поя
 
 ### ENV для генерации баннеров
 
-- `OPENAI_API_KEY` — ключ для Image API.
+- `OPENAI_IMAGE_API_KEY` — приоритетный ключ для Image API (рекомендуется отдельно от текстового контура).
+- `OPENAI_API_KEY` — fallback ключ для Image API.
 - `SCORING_IMAGE_MODEL` — модель (по умолчанию `gpt-image-1.5`).
 - опционально `OPENAI_IMAGE_BASE_URL` (если нужен кастомный endpoint).
 
