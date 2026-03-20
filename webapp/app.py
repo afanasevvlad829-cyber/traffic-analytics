@@ -11,6 +11,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from src.scoring.service import (
     bootstrap_scoring_activation_direct,
+    generate_scoring_ad_template_banners,
     get_scoring_ad_templates,
     get_scoring_activation_plan,
     get_scoring_activation_reaction,
@@ -446,6 +447,48 @@ def api_scoring_ad_templates(
         include_small=bool(include_small),
         variants=safe_variants,
     )
+
+
+class ScoringAdBannerGenerateIn(BaseModel):
+    cohort_name: str
+    variant_key: str | None = None
+    days: int = 90
+    min_audience_size: int = 1
+    include_small: bool = True
+    variants: int = 3
+    images_per_variant: int = 1
+    size: str = "1536x1024"
+    quality: str = "medium"
+    output_format: str = "png"
+
+
+@app.post("/api/scoring/ad-templates/generate-banners")
+def api_scoring_generate_banners(payload: ScoringAdBannerGenerateIn):
+    safe_days = max(1, min(payload.days, 365))
+    safe_min = max(1, min(payload.min_audience_size, 100000))
+    safe_variants = max(1, min(payload.variants, 5))
+    safe_images_per_variant = max(1, min(payload.images_per_variant, 3))
+    safe_size = (payload.size or "1536x1024").strip()
+    safe_quality = (payload.quality or "medium").strip().lower()
+    safe_output_format = (payload.output_format or "png").strip().lower()
+
+    result = generate_scoring_ad_template_banners(
+        cohort_name=(payload.cohort_name or "").strip(),
+        variant_key=(payload.variant_key or "").strip() or None,
+        days=safe_days,
+        min_audience_size=safe_min,
+        include_small=bool(payload.include_small),
+        variants=safe_variants,
+        images_per_variant=safe_images_per_variant,
+        size=safe_size,
+        quality=safe_quality,
+        output_format=safe_output_format,
+    )
+    if not result.get("ok", False):
+        detail = result.get("error") or "banner generation failed"
+        status = 400 if "missing" in detail.lower() or "not found" in detail.lower() else 500
+        raise HTTPException(status_code=status, detail=detail)
+    return result
 
 
 class ScoringActivationSyncIn(BaseModel):

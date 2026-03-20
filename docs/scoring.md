@@ -193,6 +193,20 @@ Fallback нужен, чтобы модуль работал даже до поя
     - sample gate (минимум показов/кликов),
     - success_rule (критерий сравнения).
 
+10. `POST /api/scoring/ad-templates/generate-banners`
+- генерация баннеров через OpenAI Image API по выбранному cohort.
+- body:
+  - `cohort_name` (required),
+  - `variant_key` (optional),
+  - `days`, `min_audience_size`, `include_small`, `variants`,
+  - `images_per_variant` (1..3),
+  - `size` (например `1536x1024`),
+  - `quality` (`low|medium|high`),
+  - `output_format` (`png|jpeg|webp`).
+- ответ:
+  - `generated[]` со ссылками `/static/generated/scoring_banners/...`
+  - `failed[]` по ошибкам генерации.
+
 ### Бизнес-параметры KPI (текущая версия)
 
 - Средний чек: `75 000 ₽`
@@ -205,6 +219,12 @@ Fallback нужен, чтобы модуль работал даже до поя
 
 - `target CPL = 1 500 ₽`, `max CPL = 3 000 ₽`
 - `target/max CPC` — через сегментный CR клик->заявка (пока модельный, до подгрузки факта из Метрики/CRM).
+
+### ENV для генерации баннеров
+
+- `OPENAI_API_KEY` — ключ для Image API.
+- `SCORING_IMAGE_MODEL` — модель (по умолчанию `gpt-image-1.5`).
+- опционально `OPENAI_IMAGE_BASE_URL` (если нужен кастомный endpoint).
 
 ## WebApp
 

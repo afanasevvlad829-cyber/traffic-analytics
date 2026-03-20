@@ -1,0 +1,231 @@
+from __future__ import annotations
+
+import base64
+import os
+import re
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import requests
+
+STATIC_ROOT = Path("/home/kv145/traffic-analytics/webapp/static")
+OUTPUT_DIR = STATIC_ROOT / "generated" / "scoring_banners"
+
+
+def _safe_slug(value: str, default: str = "item") -> str:
+    raw = (value or "").strip().lower()
+    slug = re.sub(r"[^a-z0-9_\\-]+", "-", raw)
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    return slug or default
+
+
+def _openai_base_url() -> str:
+    # Preferred override for image-only calls.
+    explicit = str(os.getenv("OPENAI_IMAGE_BASE_URL", "")).strip()
+    if explicit:
+        return explicit.rstrip("/")
+
+    # Reuse existing base if configured (project already uses OPENAI_BASE_URL in other scripts).
+    base = str(os.getenv("OPENAI_BASE_URL", "")).strip().rstrip("/")
+    if base:
+        if base.endswith("/v1"):
+            return base
+        return f"{base}/v1"
+
+    return "https://api.openai.com/v1"
+
+
+def _banner_prompt(
+    *,
+    cohort_name: str,
+    segment: str,
+    os_root: str,
+    variant: dict[str, Any],
+    short_reason: str,
+    source_hint: str,
+) -> str:
+    headline = str(variant.get("headline") or "").strip()
+    body = str(variant.get("body") or "").strip()
+    cta = str(variant.get("cta") or "").strip()
+    angle = str(variant.get("creative_angle") or "").strip()
+    why_this = str(variant.get("why_this") or "").strip()
+
+    return (
+        "Сгенерируй рекламный баннер для лагеря AidaCamp.\n"
+        "Требования:\n"
+        "- современный, чистый, эмоционально тёплый стиль;\n"
+        "- акцент на семье, развитии подростка, доверии;\n"
+        "- без узнаваемых реальных лиц, без логотипов чужих брендов, без водяных знаков;\n"
+        "- композиция пригодна для performance-рекламы;\n"
+        "- в изображении оставить свободную зону под текстовые оверлеи.\n\n"
+        f"Сегмент аудитории: {segment}\n"
+        f"Cohort: {cohort_name}\n"
+        f"ОС аудитории: {os_root}\n"
+        f"Источник трафика: {source_hint}\n"
+        f"Сигнал сегмента: {short_reason}\n"
+        f"Креативный угол: {angle}\n"
+        f"Заголовок: {headline}\n"
+        f"Текст: {body}\n"
+        f"CTA: {cta}\n"
+        f"Гипотеза: {why_this}\n"
+    )
+
+
+def _download_binary(url: str, timeout: int = 120) -> bytes:
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    return resp.content
+
+
+def _write_image_bytes(
+    *,
+    image_bytes: bytes,
+    cohort_name: str,
+    variant_key: str,
+    idx: int,
+    extension: str,
+) -> dict[str, Any]:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    uid = uuid.uuid4().hex[:8]
+    file_name = (
+        f"{ts}_{_safe_slug(cohort_name)}_{_safe_slug(variant_key, 'variant')}"
+        f"_{idx}_{uid}.{extension}"
+    )
+    path = OUTPUT_DIR / file_name
+    path.write_bytes(image_bytes)
+    return {
+        "file_name": file_name,
+        "file_path": str(path),
+        "static_url": f"/static/generated/scoring_banners/{file_name}",
+    }
+
+
+def generate_template_banners(
+    *,
+    template_item: dict[str, Any],
+    variant_key: str | None = None,
+    images_per_variant: int = 1,
+    model: str | None = None,
+    size: str = "1536x1024",
+    quality: str = "medium",
+    output_format: str = "png",
+    timeout: int = 180,
+) -> dict[str, Any]:
+    token = str(os.getenv("OPENAI_API_KEY", "")).strip() or str(os.getenv("OPENAI_KEY", "")).strip()
+    if not token:
+        return {
+            "ok": False,
+            "error": "OPENAI_API_KEY is missing",
+            "generated": [],
+            "failed": [],
+        }
+
+    safe_n = max(1, min(int(images_per_variant or 1), 3))
+    safe_model = str(model or os.getenv("SCORING_IMAGE_MODEL", "gpt-image-1.5")).strip()
+    safe_size = str(size or "1536x1024").strip()
+    safe_quality = str(quality or "medium").strip()
+    safe_output_format = str(output_format or "png").strip().lower()
+    if safe_output_format not in {"png", "jpeg", "webp"}:
+        safe_output_format = "png"
+
+    base_url = _openai_base_url()
+    endpoint = f"{base_url}/images/generations"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    cohort_name = str(template_item.get("cohort_name") or "cohort")
+    segment = str(template_item.get("segment") or "unknown")
+    os_root = str(template_item.get("os_root") or "all")
+    short_reason = str(template_item.get("short_reason_hint") or "")
+    source_hint = str(template_item.get("source_hint") or "unknown")
+    variants = template_item.get("variants") or []
+    if variant_key:
+        variants = [v for v in variants if str(v.get("variant_key") or "") == str(variant_key)]
+        if not variants:
+            return {
+                "ok": False,
+                "error": f"variant_key not found: {variant_key}",
+                "generated": [],
+                "failed": [],
+            }
+
+    generated: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    for variant in variants:
+        v_key = str(variant.get("variant_key") or "variant")
+        prompt = _banner_prompt(
+            cohort_name=cohort_name,
+            segment=segment,
+            os_root=os_root,
+            variant=variant,
+            short_reason=short_reason,
+            source_hint=source_hint,
+        )
+        payload = {
+            "model": safe_model,
+            "prompt": prompt,
+            "n": safe_n,
+            "size": safe_size,
+            "quality": safe_quality,
+            "output_format": safe_output_format,
+        }
+        try:
+            resp = requests.post(endpoint, headers=headers, json=payload, timeout=timeout)
+            resp.raise_for_status()
+            data = resp.json()
+            rows = data.get("data") or []
+            if not rows:
+                failed.append({"variant_key": v_key, "error": "empty response data"})
+                continue
+
+            for idx, row in enumerate(rows, start=1):
+                img_bytes: bytes | None = None
+                if row.get("b64_json"):
+                    img_bytes = base64.b64decode(row["b64_json"])
+                elif row.get("url"):
+                    img_bytes = _download_binary(str(row["url"]), timeout=timeout)
+
+                if not img_bytes:
+                    failed.append({"variant_key": v_key, "idx": idx, "error": "no image payload"})
+                    continue
+
+                file_meta = _write_image_bytes(
+                    image_bytes=img_bytes,
+                    cohort_name=cohort_name,
+                    variant_key=v_key,
+                    idx=idx,
+                    extension="jpg" if safe_output_format == "jpeg" else safe_output_format,
+                )
+                generated.append(
+                    {
+                        "cohort_name": cohort_name,
+                        "segment": segment,
+                        "variant_key": v_key,
+                        "headline": variant.get("headline"),
+                        "cta": variant.get("cta"),
+                        "prompt_excerpt": prompt[:280],
+                        **file_meta,
+                    }
+                )
+        except Exception as exc:  # noqa: BLE001
+            failed.append({"variant_key": v_key, "error": str(exc)})
+
+    return {
+        "ok": len(generated) > 0,
+        "model": safe_model,
+        "size": safe_size,
+        "quality": safe_quality,
+        "output_format": safe_output_format,
+        "images_per_variant": safe_n,
+        "generated_count": len(generated),
+        "failed_count": len(failed),
+        "generated": generated,
+        "failed": failed,
+    }
+

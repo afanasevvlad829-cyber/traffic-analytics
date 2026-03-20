@@ -185,6 +185,14 @@ function numText(value, digits=2){
   return n.toFixed(digits);
 }
 
+function safeDomId(value){
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'item';
+}
+
 function factorLabel(key){
   const labels = {
     visited_price_page: 'страница цен',
@@ -1136,7 +1144,12 @@ function renderScoringTemplates(){
               Аудитория: ${esc(row.audience_size || 0)} · Окно: ${esc(row.window_days || days)}д · ОС: ${esc((row.os_root || 'all').toUpperCase())}
             </div>
           </div>
-          <div class="small muted">Тег: <span class="badge">${esc(row.direct_tag || '-')}</span></div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+            <div class="small muted">Тег: <span class="badge">${esc(row.direct_tag || '-')}</span></div>
+            <button class="btn primary" onclick="generateScoringBanners(${JSON.stringify(row.cohort_name || '')})">
+              Сгенерировать баннеры
+            </button>
+          </div>
         </div>
 
         <div class="grid-2" style="margin-top:10px">
@@ -1220,6 +1233,13 @@ ${esc(row.kpi_hypothesis?.data_gap_note || '-')}</div>
               `).join('') : `<tr><td colspan="6"><div class="empty">Нет вариантов для cohort</div></td></tr>`}
             </tbody>
           </table>
+        </div>
+
+        <div class="card" style="margin-top:10px">
+          <div class="metric-label">Сгенерированные баннеры</div>
+          <div id="banners-${safeDomId(row.cohort_name || '')}" class="small muted" style="margin-top:8px">
+            Пока не сгенерировано. Нажмите «Сгенерировать баннеры».
+          </div>
         </div>
       </div>
     `).join('') : `
@@ -1354,6 +1374,67 @@ async function applyScoringTemplateFilters(){
     include_small: includeSmall,
   };
   await loadScoringDataAndRender();
+}
+
+async function generateScoringBanners(cohortName){
+  const name = String(cohortName || '').trim();
+  if (!name) return;
+
+  const containerId = 'banners-' + safeDomId(name);
+  const container = document.getElementById(containerId);
+  if (container) {
+    container.innerHTML = '<div class="small muted">Генерация баннеров...</div>';
+  }
+
+  const tpl = DASH.scoring_ad_templates || {};
+  try {
+    const data = await api('/api/scoring/ad-templates/generate-banners', {
+      method: 'POST',
+      body: JSON.stringify({
+        cohort_name: name,
+        days: Number(tpl.days || 90),
+        min_audience_size: Number(tpl.min_audience_size || 1),
+        include_small: Boolean(tpl.include_small !== false),
+        variants: Number(tpl.variants || 3),
+        images_per_variant: 1,
+        size: '1536x1024',
+        quality: 'medium',
+        output_format: 'png',
+      }),
+    });
+
+    const images = data.generated || [];
+    if (!container) return;
+    if (!images.length) {
+      container.innerHTML = '<div class="small muted">Генерация завершена, но изображения не получены.</div>';
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="small muted" style="margin-bottom:8px">
+        Сгенерировано: ${esc(data.generated_count || images.length)} · Модель: ${esc(data.model || '-')} · Размер: ${esc(data.size || '-')}
+      </div>
+      <div class="banner-grid">
+        ${images.map((img) => `
+          <div class="banner-card">
+            <a href="${esc(img.static_url)}" target="_blank" rel="noopener noreferrer">
+              <img class="banner-image" src="${esc(img.static_url)}" alt="${esc(img.variant_key || 'banner')}"/>
+            </a>
+            <div class="small" style="margin-top:8px"><b>${esc(img.variant_key || '-')}</b></div>
+            <div class="small muted">${esc(shortText(img.headline || '', 80))}</div>
+            <div class="small muted">${esc(img.cta || '')}</div>
+          </div>
+        `).join('')}
+      </div>
+      ${(data.failed_count || 0) > 0 ? `<div class="code" style="margin-top:10px">Ошибок генерации: ${esc(data.failed_count)}</div>` : ''}
+    `;
+  } catch (e) {
+    if (container) {
+      container.innerHTML = `<div class="code">Ошибка генерации баннеров: ${esc(e.message)}</div>`;
+    } else {
+      alert('Ошибка генерации баннеров: ' + e.message);
+    }
+  }
 }
 
 async function rebuildScoring(){

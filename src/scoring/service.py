@@ -9,6 +9,7 @@ import requests
 from psycopg2.extras import Json, RealDictCursor
 
 from src.db import db_cursor, get_connection
+from src.scoring.banner_generator import generate_template_banners
 from src.scoring.direct_bootstrap import bootstrap_direct_entities
 from src.scoring.feature_builder import FeatureBuilder, VisitorFeatures
 from src.scoring.creative_playbook import (
@@ -996,6 +997,67 @@ class ScoringService:
             "items": out,
         }
 
+    def generate_ad_template_banners(
+        self,
+        *,
+        cohort_name: str,
+        variant_key: str | None = None,
+        days: int = 90,
+        min_audience_size: int = 1,
+        include_small: bool = True,
+        variants: int = 3,
+        images_per_variant: int = 1,
+        size: str = "1536x1024",
+        quality: str = "medium",
+        output_format: str = "png",
+    ) -> dict[str, Any]:
+        name = str(cohort_name or "").strip()
+        if not name:
+            return {"ok": False, "ready": False, "error": "cohort_name is required"}
+
+        templates = self.get_ad_templates(
+            days=days,
+            min_audience_size=min_audience_size,
+            include_small=include_small,
+            variants=variants,
+        )
+        if not templates.get("ready", False):
+            return {
+                "ok": False,
+                "ready": False,
+                "error": templates.get("error", "ad templates are not ready"),
+            }
+
+        items = templates.get("items") or []
+        item = next((x for x in items if str(x.get("cohort_name") or "").strip() == name), None)
+        if not item:
+            return {"ok": False, "ready": False, "error": f"cohort not found: {name}"}
+
+        result = generate_template_banners(
+            template_item=item,
+            variant_key=variant_key,
+            images_per_variant=images_per_variant,
+            size=size,
+            quality=quality,
+            output_format=output_format,
+        )
+        return {
+            "ok": bool(result.get("ok", False)),
+            "ready": True,
+            "cohort_name": name,
+            "segment": item.get("segment"),
+            "generated_count": int(result.get("generated_count") or 0),
+            "failed_count": int(result.get("failed_count") or 0),
+            "images_per_variant": int(result.get("images_per_variant") or images_per_variant),
+            "model": result.get("model"),
+            "size": result.get("size"),
+            "quality": result.get("quality"),
+            "output_format": result.get("output_format"),
+            "generated": result.get("generated") or [],
+            "failed": result.get("failed") or [],
+            "error": result.get("error"),
+        }
+
     def bootstrap_activation_direct(
         self,
         *,
@@ -1546,4 +1608,31 @@ def get_scoring_ad_templates(
         min_audience_size=min_audience_size,
         include_small=include_small,
         variants=variants,
+    )
+
+
+def generate_scoring_ad_template_banners(
+    *,
+    cohort_name: str,
+    variant_key: str | None = None,
+    days: int = 90,
+    min_audience_size: int = 1,
+    include_small: bool = True,
+    variants: int = 3,
+    images_per_variant: int = 1,
+    size: str = "1536x1024",
+    quality: str = "medium",
+    output_format: str = "png",
+) -> dict[str, Any]:
+    return _service.generate_ad_template_banners(
+        cohort_name=cohort_name,
+        variant_key=variant_key,
+        days=days,
+        min_audience_size=min_audience_size,
+        include_small=include_small,
+        variants=variants,
+        images_per_variant=images_per_variant,
+        size=size,
+        quality=quality,
+        output_format=output_format,
     )

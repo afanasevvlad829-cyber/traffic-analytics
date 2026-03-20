@@ -459,6 +459,28 @@ textarea.big{
   background:#121827;
 }
 
+.banner-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:12px;
+}
+
+.banner-card{
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:var(--panel-2);
+  padding:10px;
+}
+
+.banner-image{
+  width:100%;
+  aspect-ratio:3 / 2;
+  object-fit:cover;
+  border-radius:10px;
+  border:1px solid var(--line);
+  background:#0f1420;
+}
+
 .tabulator .tabulator-row.tabulator-selected{
   background:rgba(59,130,246,.18);
 }
