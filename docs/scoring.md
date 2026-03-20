@@ -236,10 +236,17 @@ Fallback нужен, чтобы модуль работал даже до поя
 
 ### ENV для генерации баннеров
 
-- `OPENAI_IMAGE_API_KEY` — приоритетный ключ для Image API (рекомендуется отдельно от текстового контура).
-- `OPENAI_API_KEY` — fallback ключ для Image API.
-- `SCORING_IMAGE_MODEL` — модель (по умолчанию `gpt-image-1.5`).
-- опционально `OPENAI_IMAGE_BASE_URL` (если нужен кастомный endpoint).
+- `SCORING_IMAGE_PROVIDER` — `auto` (по умолчанию), `openai`, `openrouter`.
+- `OPENAI_IMAGE_API_KEY` — ключ OpenAI Image API.
+- `SCORING_IMAGE_MODEL` — модель OpenAI (`gpt-image-1.5` по умолчанию).
+- `OPENAI_IMAGE_BASE_URL` — опциональный base URL для OpenAI Images.
+
+OpenRouter fallback/режим:
+
+- `OPENROUTER_API_KEY` — ключ OpenRouter (или fallback на `OPENAI_API_KEY`/`OPENAI_KEY`).
+- `OPENROUTER_IMAGE_MODEL` — по умолчанию `google/gemini-2.5-flash-image-preview`.
+- `OPENROUTER_BASE_URL` — по умолчанию `https://openrouter.ai/api/v1`.
+- `OPENROUTER_HTTP_REFERER` и `OPENROUTER_APP_TITLE` — опционально для атрибуции OpenRouter.
 
 ## WebApp
 
