@@ -98,6 +98,12 @@ class ScoringService:
             "git_commit": self._git_commit(),
             "source_mode": source_mode,
             "has_attribution_stats": isinstance(page_signal_status.get("attribution_stats"), dict),
+            "selected_query_name": (feature_sync_result or {}).get("selected_query_name"),
+            "selected_dimensions": (feature_sync_result or {}).get("selected_dimensions"),
+            "safe_fallback_triggered": bool((feature_sync_result or {}).get("safe_fallback_triggered", False)),
+            "skipped_replace_due_to_empty_fetch": bool(
+                (feature_sync_result or {}).get("skipped_replace_due_to_empty_fetch", False)
+            ),
         }
 
     @staticmethod

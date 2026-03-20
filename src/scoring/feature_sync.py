@@ -357,6 +357,8 @@ def _load_client_page_signals(
     ]
     basic_dimensions = ["ym:s:clientID", "ym:s:startURL"]
     selected_dimensions = extended_dimensions.copy()
+    selected_query_name = "extended_with_source_utm"
+    safe_fallback_triggered = False
     query_info = {"dimensions": selected_dimensions.copy(), "metrics": ["ym:s:visits"], "filters": ""}
     raw_samples: list[dict[str, Any]] = []
 
@@ -380,12 +382,21 @@ def _load_client_page_signals(
             if not can_fallback_to_basic:
                 raise
             selected_dimensions = basic_dimensions.copy()
+            selected_query_name = "fallback_current"
+            safe_fallback_triggered = True
             query_info["dimensions"] = selected_dimensions.copy()
             continue
 
         payload = response.json()
         rows = payload.get("data") or []
         if not rows:
+            can_fallback_to_basic = selected_dimensions != basic_dimensions and fetched == 0 and pages == 0
+            if can_fallback_to_basic:
+                selected_dimensions = basic_dimensions.copy()
+                selected_query_name = "fallback_current"
+                safe_fallback_triggered = True
+                query_info["dimensions"] = selected_dimensions.copy()
+                continue
             break
 
         total_rows = int(payload.get("total_rows") or 0) or total_rows
@@ -508,6 +519,9 @@ def _load_client_page_signals(
             "pages": pages,
             "total_rows_reported": total_rows,
             "clients": len(signals),
+            "selected_query_name": selected_query_name,
+            "selected_dimensions": selected_dimensions,
+            "safe_fallback_triggered": safe_fallback_triggered,
             "raw_sample_rows": raw_samples,
             "attribution_stats": {
                 "unknown_before": unknown_before,
@@ -625,21 +639,6 @@ def build_scoring_features(
         "filters": "",
     }
 
-    if replace:
-        try:
-            cleared_rows = _clear_staging_features()
-        except Exception as exc:  # noqa: BLE001
-            return {
-                "ok": False,
-                "skipped": False,
-                "reason": f"failed to clear stg_metrica_visitors_features: {exc}",
-                "feature_sync_version": FEATURE_SYNC_VERSION,
-                "attribution_logic_version": ATTRIBUTION_LOGIC_VERSION,
-                "fetched": 0,
-                "upserted": 0,
-                "primary_query": primary_query,
-            }
-
     try:
         page_signals, page_signal_status = _load_client_page_signals(
             token=token,
@@ -653,6 +652,7 @@ def build_scoring_features(
         page_signals = {}
         page_signal_status = {"ok": False, "reason": str(exc)}
 
+    primary_rows_all: list[dict[str, Any]] = []
     while fetched < safe_max_rows:
         page_size = min(safe_page_limit, safe_max_rows - fetched)
         params = {
@@ -761,7 +761,7 @@ def build_scoring_features(
                 }
             )
 
-        upserted += _upsert_feature_rows(page_rows)
+        primary_rows_all.extend(page_rows)
         pages += 1
         fetched += len(rows)
         offset += len(rows)
@@ -771,17 +771,93 @@ def build_scoring_features(
         if total_rows and fetched >= min(total_rows, safe_max_rows):
             break
 
+    selected_query_name = str((page_signal_status.get("selected_query_name") or "") if isinstance(page_signal_status, dict) else "")
+    selected_dimensions = (
+        page_signal_status.get("selected_dimensions")
+        if isinstance(page_signal_status, dict)
+        else []
+    ) or []
+    safe_fallback_triggered = bool(
+        (page_signal_status.get("safe_fallback_triggered") or False) if isinstance(page_signal_status, dict) else False
+    )
+
     source_mode = "primary_query"
     fallback_rows_count = 0
-    if upserted == 0 and page_signals:
+    rows_to_upsert: list[dict[str, Any]] = []
+    if primary_rows_all:
+        rows_to_upsert = primary_rows_all
+        source_mode = "primary_query"
+    elif page_signals:
         fallback_rows = _build_rows_from_page_signals(
             page_signals=page_signals,
             first_seen_at=first_seen_at,
             last_seen_at=last_seen_at,
         )
         fallback_rows_count = len(fallback_rows)
-        upserted = _upsert_feature_rows(fallback_rows)
-        source_mode = "page_signals_fallback"
+        rows_to_upsert = fallback_rows
+        source_mode = "fallback_current"
+
+    skipped_replace_due_to_empty_fetch = False
+    staging_preserved = False
+    if not rows_to_upsert:
+        if replace:
+            skipped_replace_due_to_empty_fetch = True
+            staging_preserved = True
+        return {
+            "ok": True,
+            "skipped": False,
+            "source": "metrica_stat_api",
+            "feature_sync_version": FEATURE_SYNC_VERSION,
+            "attribution_logic_version": ATTRIBUTION_LOGIC_VERSION,
+            "source_mode": "empty",
+            "selected_query_name": selected_query_name or ("fallback_current" if safe_fallback_triggered else "none"),
+            "selected_dimensions": selected_dimensions,
+            "safe_fallback_triggered": safe_fallback_triggered,
+            "skipped_replace_due_to_empty_fetch": skipped_replace_due_to_empty_fetch,
+            "staging_preserved": staging_preserved,
+            "date_from": date_from.isoformat(),
+            "date_to": date_to.isoformat(),
+            "fetched": fetched,
+            "upserted": 0,
+            "replace_mode": bool(replace),
+            "cleared_rows": 0,
+            "pages": pages,
+            "skipped_no_id": skipped_no_id,
+            "total_rows_reported": total_rows,
+            "primary_query": primary_query,
+            "primary_query_status": {
+                "fetched": fetched,
+                "pages": pages,
+                "total_rows_reported": total_rows,
+                "empty_reason": (
+                    "all candidate queries returned 0 rows; keeping existing staging untouched"
+                ),
+            },
+            "page_signal_status": page_signal_status,
+            "page_signals_clients": len(page_signals),
+            "page_signals_rows_built": fallback_rows_count,
+        }
+
+    if replace:
+        try:
+            cleared_rows = _clear_staging_features()
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "skipped": False,
+                "reason": f"failed to clear stg_metrica_visitors_features: {exc}",
+                "feature_sync_version": FEATURE_SYNC_VERSION,
+                "attribution_logic_version": ATTRIBUTION_LOGIC_VERSION,
+                "fetched": fetched,
+                "upserted": 0,
+                "primary_query": primary_query,
+                "selected_query_name": selected_query_name or ("fallback_current" if safe_fallback_triggered else "none"),
+                "selected_dimensions": selected_dimensions,
+                "safe_fallback_triggered": safe_fallback_triggered,
+                "skipped_replace_due_to_empty_fetch": False,
+                "staging_preserved": True,
+            }
+    upserted = _upsert_feature_rows(rows_to_upsert)
 
     return {
         "ok": True,
@@ -790,6 +866,11 @@ def build_scoring_features(
         "feature_sync_version": FEATURE_SYNC_VERSION,
         "attribution_logic_version": ATTRIBUTION_LOGIC_VERSION,
         "source_mode": source_mode,
+        "selected_query_name": selected_query_name or ("fallback_current" if source_mode == "fallback_current" else "primary_query"),
+        "selected_dimensions": selected_dimensions,
+        "safe_fallback_triggered": safe_fallback_triggered,
+        "skipped_replace_due_to_empty_fetch": False,
+        "staging_preserved": False,
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
         "fetched": fetched,
