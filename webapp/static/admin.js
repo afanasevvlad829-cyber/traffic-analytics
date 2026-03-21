@@ -128,10 +128,10 @@ function applyStandaloneScoringLayout(){
            <a class="btn ghost" href="/admin/scoring/creatives">Аудитории</a>`;
 
     actions.innerHTML = `
-      <a class="btn ghost" href="/admin">Открыть обзор</a>
+      <a class="btn ghost" href="/admin" data-icon="house">Открыть обзор</a>
       ${sectionLinks}
-      <button class="btn" onclick="loadScoringDataAndRender()">Обновить данные</button>
-      <button class="btn primary" onclick="rebuildScoring()">Пересчитать скоринг</button>
+      <button class="btn" onclick="loadScoringDataAndRender()" data-icon="refresh-cw">Обновить данные</button>
+      <button class="btn primary" onclick="rebuildScoring()" data-icon="calculator">Пересчитать скоринг</button>
     `;
   }
 
@@ -170,9 +170,9 @@ function applyStandaloneAuditsLayout(){
 
   if (actions) {
     actions.innerHTML = `
-      <a class="btn ghost" href="/admin">Открыть обзор</a>
-      <button class="btn" onclick="loadAuditsDataAndRender()">Обновить данные</button>
-      <button class="btn primary" onclick="runAuditSmokeRun()">Тестовый запуск аудита</button>
+      <a class="btn ghost" href="/admin" data-icon="house">Открыть обзор</a>
+      <button class="btn" onclick="loadAuditsDataAndRender()" data-icon="refresh-cw">Обновить данные</button>
+      <button class="btn primary" onclick="runAuditSmokeRun()" data-icon="flask-conical">Тестовый запуск аудита</button>
     `;
   }
 
@@ -353,22 +353,22 @@ function normalizeHelpText(value){
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
-const NAV_ICON_MAP = Object.freeze({
-  'Обзор': { lib: 'lucide', name: 'house' },
-  'Кампании и объявления': { lib: 'lucide', name: 'megaphone' },
-  'Структура кампаний': { lib: 'lucide', name: 'blocks' },
-  'Минус-слова': { lib: 'lucide', name: 'circle-off' },
-  'Прогноз': { lib: 'lucide', name: 'chart-column' },
-  'Скоринг посетителей': { lib: 'lucide', name: 'target' },
-  'Аудитории и активация': { lib: 'lucide', name: 'users' },
-  'Шаблоны баннеров': { lib: 'lucide', name: 'image' },
-  'CRM / AlfaCRM': { lib: 'tabler', name: 'users-group' },
-  'Аудит OpenRouter': { lib: 'tabler', name: 'brand-openai' },
-  'Журнал действий': { lib: 'lucide', name: 'clipboard-list' },
-  'Диагностика': { lib: 'lucide', name: 'stethoscope' },
+const NAV_ICON_BY_SECTION = Object.freeze({
+  overview: { lib: 'lucide', name: 'house' },
+  creatives: { lib: 'lucide', name: 'megaphone' },
+  structure: { lib: 'lucide', name: 'blocks' },
+  negatives: { lib: 'lucide', name: 'circle-off' },
+  forecast: { lib: 'lucide', name: 'chart-column' },
+  scoring: { lib: 'lucide', name: 'target' },
+  scoring_creatives: { lib: 'lucide', name: 'users' },
+  scoring_templates: { lib: 'lucide', name: 'image' },
+  crm: { lib: 'tabler', name: 'users-group' },
+  audits: { lib: 'tabler', name: 'brand-openai' },
+  actions: { lib: 'lucide', name: 'clipboard-list' },
+  diagnostics: { lib: 'lucide', name: 'stethoscope' },
 });
 
-const BUTTON_ICON_MAP = Object.freeze({
+const BUTTON_ICON_BY_TEXT = Object.freeze({
   'Компактная панель': { lib: 'lucide', name: 'layout-dashboard' },
   'Обновить данные': { lib: 'lucide', name: 'refresh-cw' },
   'Проверка системы': { lib: 'lucide', name: 'stethoscope' },
@@ -391,12 +391,35 @@ const BUTTON_ICON_MAP = Object.freeze({
   'Отклонить': { lib: 'lucide', name: 'circle-x' },
 });
 
-function buildIconMarkup(spec){
-  if (!spec || !spec.name) return '';
-  if (spec.lib === 'tabler') {
-    return `<i class="ti ti-${esc(spec.name)}" aria-hidden="true"></i>`;
+function normalizeIconSpec(spec){
+  if (!spec || !spec.name) return null;
+  return {
+    lib: spec.lib === 'tabler' ? 'tabler' : 'lucide',
+    name: String(spec.name || '').trim(),
+  };
+}
+
+function createIconNode(spec){
+  const s = normalizeIconSpec(spec);
+  if (!s) return null;
+  if (s.lib === 'tabler') {
+    const i = document.createElement('i');
+    i.className = `ti ti-${s.name}`;
+    i.setAttribute('aria-hidden', 'true');
+    return i;
   }
-  return `<i data-lucide="${esc(spec.name)}" aria-hidden="true"></i>`;
+  const i = document.createElement('i');
+  i.setAttribute('data-lucide', s.name);
+  i.setAttribute('aria-hidden', 'true');
+  return i;
+}
+
+function datasetIconSpec(node){
+  if (!node) return null;
+  const name = String(node.dataset.icon || '').trim();
+  if (!name) return null;
+  const lib = String(node.dataset.iconLib || 'lucide').trim().toLowerCase();
+  return normalizeIconSpec({ lib, name });
 }
 
 function renderIconLibraries(){
@@ -407,16 +430,17 @@ function renderIconLibraries(){
 
 function decorateNavIcons(){
   document.querySelectorAll('.nav button').forEach((btn) => {
-    const labelNode = btn.querySelector('.nav-label');
     const iconNode = btn.querySelector('.nav-icon');
-    if (!labelNode || !iconNode) return;
-    const label = normalizeHelpText(labelNode.textContent);
-    const spec = NAV_ICON_MAP[label];
+    if (!iconNode) return;
+    const section = String(btn.dataset.section || '').trim();
+    const spec = datasetIconSpec(btn) || normalizeIconSpec(NAV_ICON_BY_SECTION[section]);
     if (!spec) return;
     const key = `${spec.lib}:${spec.name}`;
     if (iconNode.dataset.iconKey === key) return;
     iconNode.dataset.iconKey = key;
-    iconNode.innerHTML = buildIconMarkup(spec);
+    iconNode.textContent = '';
+    const icon = createIconNode(spec);
+    if (icon) iconNode.appendChild(icon);
   });
 }
 
@@ -430,7 +454,7 @@ function decorateButtonIcons(){
   document.querySelectorAll('.main .btn').forEach((btn) => {
     if (btn.dataset.iconLocked === '1') return;
     const baseText = buttonBaseText(btn);
-    const spec = BUTTON_ICON_MAP[baseText];
+    const spec = datasetIconSpec(btn) || normalizeIconSpec(BUTTON_ICON_BY_TEXT[baseText]);
     if (!spec) return;
     const iconKey = `${spec.lib}:${spec.name}`;
     if (btn.dataset.iconKey === iconKey) return;
@@ -440,10 +464,18 @@ function decorateButtonIcons(){
     const iconWrap = document.createElement('span');
     iconWrap.className = 'btn-icon';
     iconWrap.setAttribute('aria-hidden', 'true');
-    iconWrap.innerHTML = buildIconMarkup(spec);
+    const icon = createIconNode(spec);
+    if (icon) iconWrap.appendChild(icon);
     btn.prepend(iconWrap);
     btn.dataset.iconKey = iconKey;
   });
+}
+
+function decorateUiChrome(){
+  decorateNavIcons();
+  decorateButtonIcons();
+  decorateUiHelpHints();
+  renderIconLibraries();
 }
 
 function decorateUiHelpHints(){
@@ -2805,17 +2837,8 @@ function renderSection(){
   if (CURRENT_SECTION === 'audits') renderAudits();
   if (CURRENT_SECTION === 'actions') renderActions();
   if (CURRENT_SECTION === 'diagnostics') renderDiagnostics();
-  decorateNavIcons();
-  decorateButtonIcons();
-  renderIconLibraries();
-  decorateUiHelpHints();
-  renderIconLibraries();
-  window.requestAnimationFrame(() => decorateUiHelpHints());
-  window.requestAnimationFrame(() => {
-    decorateNavIcons();
-    decorateButtonIcons();
-    renderIconLibraries();
-  });
+  decorateUiChrome();
+  window.requestAnimationFrame(() => decorateUiChrome());
 }
 
 async function reloadAll(){
@@ -2955,9 +2978,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   applyInitialRouteState();
   applyStandaloneScoringLayout();
   applyStandaloneAuditsLayout();
-  decorateNavIcons();
-  decorateButtonIcons();
-  renderIconLibraries();
+  decorateUiChrome();
   loadSystemVersionMeta();
   document.getElementById('global-search').addEventListener('input', renderSection);
   document.getElementById('campaign-filter').addEventListener('change', renderSection);
