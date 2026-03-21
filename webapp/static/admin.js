@@ -98,10 +98,12 @@ function applyStandaloneScoringLayout(){
 
   document.querySelectorAll('.nav button').forEach(btn => {
     const section = btn.dataset.section || '';
-    if (!['scoring', 'scoring_creatives', 'scoring_templates'].includes(section)) {
-      btn.style.display = 'none';
+    const scoringSections = ['scoring', 'scoring_creatives', 'scoring_templates'];
+    const labelNode = btn.querySelector('.nav-label');
+
+    if (!scoringSections.includes(section)) {
+      btn.setAttribute('onclick', `window.location.href='/admin?section=${encodeURIComponent(section)}'`);
     } else {
-      const labelNode = btn.querySelector('.nav-label');
       const label = section === 'scoring'
         ? 'Скоринг посетителей'
         : section === 'scoring_creatives'
@@ -113,10 +115,6 @@ function applyStandaloneScoringLayout(){
         btn.textContent = label;
       }
     }
-  });
-
-  document.querySelectorAll('.nav-group-title').forEach(node => {
-    node.style.display = 'none';
   });
 }
 

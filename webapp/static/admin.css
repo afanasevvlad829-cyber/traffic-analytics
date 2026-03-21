@@ -362,12 +362,43 @@ body.scoring-standalone{
   --accent:#2563eb;
 }
 
-body.scoring-standalone .shell{
-  grid-template-columns:1fr;
+body.scoring-standalone .sidebar{
+  display:block;
+  background:#0f172a;
+  border-right:1px solid #1e293b;
 }
 
-body.scoring-standalone .sidebar{
-  display:none;
+body.scoring-standalone .brand{
+  color:#ffffff;
+}
+
+body.scoring-standalone .brand-sub{
+  color:#94a3b8;
+}
+
+body.scoring-standalone .nav-group-title{
+  color:#94a3b8;
+}
+
+body.scoring-standalone .nav button{
+  color:#dbe3f1;
+  border-color:#273349;
+}
+
+body.scoring-standalone .nav button.active{
+  background:#1f2b46;
+  border-color:#1f2b46;
+  color:#ffffff;
+}
+
+body.scoring-standalone .nav-help{
+  border-color:#3a4a6f;
+  color:#9fb0d1;
+}
+
+body.scoring-standalone .sidebar-meta{
+  border-top:1px solid #273349;
+  color:#94a3b8;
 }
 
 body.scoring-standalone .search-row,
