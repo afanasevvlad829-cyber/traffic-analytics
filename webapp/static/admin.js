@@ -190,6 +190,47 @@ function setSection(name){
   renderSection();
 }
 
+const BUTTON_HELP_HINTS = Object.freeze({
+  'Обновить данные': 'Повторно загружает данные текущей страницы с сервера.',
+  'Пересчитать скоринг': 'Пересобирает признаки и заново считает score/сегменты посетителей.',
+  'Применить': 'Применяет выбранные фильтры к данным на экране.',
+  'Обновить': 'Перезагружает блок с актуальными данными.',
+  'Открыть': 'Открывает детальную карточку записи.',
+  'Сгенерировать баннеры': 'Запускает генерацию баннеров для выбранной аудитории.',
+  'Запустить sync в Директ': 'Проверяет и синхронизирует аудитории в Яндекс Директ.',
+  'Запустить диагностику': 'Выполняет проверку интеграций, API и ключевых сервисов.',
+  'Скопировать отчёт': 'Копирует текст текущего диагностического отчёта.',
+});
+
+function normalizeHelpText(value){
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function decorateUiHelpHints(){
+  const nodes = document.querySelectorAll('.main .btn');
+  nodes.forEach((btn) => {
+    if (btn.classList.contains('btn-help')) return;
+    if (btn.querySelector(':scope > .btn-help')) return;
+    if (btn.dataset.noHelp === '1') return;
+
+    const text = normalizeHelpText(btn.textContent);
+    const explicit = normalizeHelpText(btn.dataset.help || btn.getAttribute('title'));
+    const hint = BUTTON_HELP_HINTS[text] || explicit || text;
+    if (!hint) return;
+
+    btn.classList.add('btn-with-help');
+    btn.dataset.help = hint;
+    if (!btn.getAttribute('title')) btn.setAttribute('title', hint);
+
+    const help = document.createElement('span');
+    help.className = 'btn-help';
+    help.textContent = 'i';
+    help.setAttribute('data-help', hint);
+    help.setAttribute('aria-hidden', 'true');
+    btn.appendChild(help);
+  });
+}
+
 function confidenceBadge(value){
   const v = (value || 'LOW').toUpperCase();
   if (v === 'HIGH') return '<span class="badge good">HIGH</span>';
@@ -464,10 +505,10 @@ function initScoringCharts(){
     },
     options: {
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#f5f7fb' } } },
+      plugins: { legend: { labels: { color: '#334155' } } },
       scales: {
-        x: { ticks: { color: '#8d99ae', maxRotation: 0 }, grid: { color: 'rgba(35,40,54,.55)' } },
-        y: { ticks: { color: '#8d99ae' }, grid: { color: 'rgba(35,40,54,.55)' }, beginAtZero: true },
+        x: { ticks: { color: '#64748b', maxRotation: 0 }, grid: { color: 'rgba(148,163,184,.35)' } },
+        y: { ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,.35)' }, beginAtZero: true },
       },
     },
   });
@@ -491,14 +532,14 @@ function initScoringCharts(){
         {
           data: distData,
           backgroundColor: ['#16a34a', '#d97706', '#64748b'],
-          borderColor: ['#0f172a', '#0f172a', '#0f172a'],
+          borderColor: ['#ffffff', '#ffffff', '#ffffff'],
           borderWidth: 1,
         },
       ],
     },
     options: {
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#f5f7fb' } } },
+      plugins: { legend: { labels: { color: '#334155' } } },
     },
   });
 }
@@ -1868,6 +1909,8 @@ function renderSection(){
   if (CURRENT_SECTION === 'scoring_templates') renderScoringTemplates();
   if (CURRENT_SECTION === 'actions') renderActions();
   if (CURRENT_SECTION === 'diagnostics') renderDiagnostics();
+  decorateUiHelpHints();
+  window.requestAnimationFrame(() => decorateUiHelpHints());
 }
 
 async function reloadAll(){
