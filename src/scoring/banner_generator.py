@@ -163,6 +163,23 @@ def _banner_prompt(
     cta = str(variant.get("cta") or "").strip()
     angle = str(variant.get("creative_angle") or "").strip()
     why_this = str(variant.get("why_this") or "").strip()
+    textless = str(os.getenv("SCORING_BANNER_TEXT_MODE", "textless")).strip().lower() != "overlay"
+
+    # Canonical product context from aidacamp.ru (content-level source of truth).
+    product_context = (
+        "Контекст продукта (AidaCamp):\n"
+        "- летний IT-лагерь в Подмосковье (рядом с Москвой), формат с проживанием;\n"
+        "- фокус: программирование и технологические проекты для детей/подростков 7–14;\n"
+        "- учебные направления: Scratch и Python, чат-боты, дроны/алгоритмы полёта, базы данных/Java/SQL;\n"
+        "- ценности: безопасная среда, профессиональные педагоги, распорядок дня, спорт и бассейн;\n"
+        "- атмосфера: развитие, командная работа, практический результат, поддержка наставников.\n"
+    )
+    segment_visual = _segment_visual_guidance(segment=segment, angle=angle, short_reason=short_reason)
+    text_rules = (
+        "Критично: не добавляй на изображение никакой текст, буквы, цифры, логотипы, водяные знаки или интерфейсные элементы."
+        if textless
+        else "Допустима только минимальная зона под будущий текстовый оверлей."
+    )
 
     return (
         "Сгенерируй рекламный баннер для лагеря AidaCamp.\n"
@@ -171,7 +188,8 @@ def _banner_prompt(
         "- акцент на семье, развитии подростка, доверии;\n"
         "- без узнаваемых реальных лиц, без логотипов чужих брендов, без водяных знаков;\n"
         "- композиция пригодна для performance-рекламы;\n"
-        "- в изображении оставить свободную зону под текстовые оверлеи.\n\n"
+        f"- {text_rules}\n\n"
+        f"{product_context}\n"
         f"Сегмент аудитории: {segment}\n"
         f"Cohort: {cohort_name}\n"
         f"ОС аудитории: {os_root}\n"
@@ -182,6 +200,32 @@ def _banner_prompt(
         f"Текст: {body}\n"
         f"CTA: {cta}\n"
         f"Гипотеза: {why_this}\n"
+        f"Визуальный бриф по сегменту: {segment_visual}\n"
+    )
+
+
+def _segment_visual_guidance(*, segment: str, angle: str, short_reason: str) -> str:
+    s = str(segment or "").strip().lower()
+    a = str(angle or "").strip().lower()
+    r = str(short_reason or "").strip().lower()
+    if s == "hot":
+        return (
+            "момент принятия решения: родитель и подросток в уверенном действии (запись/выбор смены), "
+            "в кадре элементы IT-активности (ноутбук, код, проект), динамичный и контрастный свет, ощущение дефицита мест."
+        )
+    if s == "warm":
+        return (
+            "этап изучения: наставник объясняет программу группе подростков, "
+            "рабочие сцены с проектной деятельностью (ноутбуки, командная работа, прототипы), дружелюбная и доверительная атмосфера."
+        )
+    if s == "cold":
+        return (
+            "этап прогрева: акцент на безопасной и комфортной среде лагеря в Подмосковье, "
+            "сочетание обучения и активности (campus/спорт/бассейн), спокойный тон и ощущение заботы."
+        )
+    return (
+        f"сегмент={s or 'unknown'}, angle={a or '-'}, reason={r or '-'}; "
+        "сцена должна оставаться про IT-лагерь, а не абстрактный детский отдых."
     )
 
 
