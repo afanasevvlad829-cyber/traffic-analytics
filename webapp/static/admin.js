@@ -343,6 +343,10 @@ const BUTTON_HELP_HINTS = Object.freeze({
   'Скопировать отчёт': 'Копирует текст текущего диагностического отчёта.',
   'Синхронизировать из SERM': 'Запускает прямую синхронизацию из SERM и загрузку клиентов/статусов/коммуникаций.',
   'Показать коммуникации': 'Открывает историю коммуникаций по выбранному клиенту.',
+  'Тестовый запуск аудита': 'Создаёт тестовый run и запускает worker OpenRouter, чтобы проверить полный контур аудита.',
+  'Принять': 'Подтверждает результат аудита как достаточный.',
+  'Нужна доработка': 'Переводит результат аудита в режим обязательной доработки.',
+  'Отклонить': 'Отклоняет результат аудита и фиксирует решение.',
 });
 
 function normalizeHelpText(value){
@@ -379,6 +383,11 @@ function confidenceBadge(value){
   if (v === 'HIGH') return '<span class="badge good">HIGH</span>';
   if (v === 'MEDIUM') return '<span class="badge warn">MEDIUM</span>';
   return '<span class="badge">LOW</span>';
+}
+
+function helpDot(text){
+  const hint = esc(text || '');
+  return `<span class="help-dot" tabindex="0" data-help="${hint}">i</span>`;
 }
 
 function statusBadge(value){
@@ -2415,7 +2424,7 @@ function renderAuditRunDetail(run){
   const runId = Number(run.id || 0);
   return `
     <div class="panel">
-      <div class="panel-title">Run #${esc(run.id)}</div>
+      <div class="panel-title">Run #${esc(run.id)} ${helpDot('Карточка одного запуска аудита: итог, статус, ошибки и технический след.')}</div>
       <div class="small muted">Создан: ${esc(run.created_at || '-')} · Обновлён: ${esc(run.updated_at || '-')}</div>
       <div class="row mt-2">
         <span class="badge">Статус: ${esc(auditStatusText(run.status))}</span>
@@ -2437,16 +2446,19 @@ function renderAuditRunDetail(run){
         <button class="btn" onclick="reviewAuditRun(${runId}, 'needs_fix')">Нужна доработка</button>
         <button class="btn" onclick="reviewAuditRun(${runId}, 'reject')">Отклонить</button>
       </div>
-      <div class="row mt-2">
-        <div class="col-md-6 col-sm-12">
-          <div class="panel-title" style="font-size:14px">Нормализованный ответ (preview)</div>
-          <div class="code">${esc(shortText(JSON.stringify(normalized, null, 2), 2500))}</div>
+      <details class="mt-2">
+        <summary><b>Технические детали ${helpDot('Нормализованный ответ = приведённая структура для UI. Raw = исходный ответ модели от провайдера.')}</b></summary>
+        <div class="row mt-2">
+          <div class="col-md-6 col-sm-12">
+            <div class="panel-title" style="font-size:14px">Нормализованный ответ (preview)</div>
+            <div class="code">${esc(shortText(JSON.stringify(normalized, null, 2), 2500))}</div>
+          </div>
+          <div class="col-md-6 col-sm-12">
+            <div class="panel-title" style="font-size:14px">Raw ответ (preview)</div>
+            <div class="code">${esc(shortText(JSON.stringify(raw, null, 2), 2500))}</div>
+          </div>
         </div>
-        <div class="col-md-6 col-sm-12">
-          <div class="panel-title" style="font-size:14px">Raw ответ (preview)</div>
-          <div class="code">${esc(shortText(JSON.stringify(raw, null, 2), 2500))}</div>
-        </div>
-      </div>
+      </details>
     </div>
   `;
 }
@@ -2480,7 +2492,7 @@ function renderAudits(){
   document.getElementById('section-audits').innerHTML = `
     <div class="panel">
       <div class="row" style="justify-content:space-between">
-        <div class="panel-title" style="margin-bottom:0">Аудит OpenRouter</div>
+        <div class="panel-title" style="margin-bottom:0">Аудит OpenRouter ${helpDot('Внешняя архитектурная проверка изменений. Здесь видно здоровье канала, запуски и их результат.')}</div>
         <div class="row">
           <button class="btn" onclick="loadAuditsDataAndRender()">Обновить данные</button>
           <button class="btn primary" onclick="runAuditSmokeRun()">Тестовый запуск аудита</button>
@@ -2492,26 +2504,29 @@ function renderAudits(){
         · latency ${esc(health.latency_ms ?? '-')} ms
         · error_class ${esc(health.error_class || '-')}
       </div>
+      <div class="small muted" style="margin-top:6px">
+        ${helpDot('Если канал недоступен, бизнес-часть системы не блокируется, но run помечается warning/failed и требует ручной разбор.')}${helpDot('Кэш используется только при совпадении входного контекста, версии промпта и ветки.')}
+      </div>
       ${health.error ? `<div class="code" style="margin-top:8px">${esc(health.error)}</div>` : ''}
       ${runResult ? `<div class="code" style="margin-top:8px">${esc(shortText(JSON.stringify(runResult), 1200))}</div>` : ''}
     </div>
 
     <div class="panel">
-      <div class="panel-title">Последние запуски аудита</div>
+      <div class="panel-title">Последние запуски аудита ${helpDot('Список run-ов: сверху новые. Выберите строку, чтобы открыть детальную карточку ниже.')}</div>
       <div class="small muted">Всего: ${esc(runsWrap.count ?? rows.length)} · Показано: ${esc(rows.length)}</div>
       ${runsWrap.error ? `<div class="code" style="margin-top:8px">${esc(runsWrap.error)}</div>` : ''}
       <div class="table-wrap" style="margin-top:10px">
         <table class="table">
           <thead>
             <tr>
-              <th>created_at</th>
-              <th>ID</th>
-              <th>Статус</th>
-              <th>Источник</th>
-              <th>Кэш</th>
-              <th>Попытки</th>
-              <th>Повторяемая</th>
-              <th>Ошибка</th>
+              <th>created_at ${helpDot('Время создания запуска аудита.')}</th>
+              <th>ID ${helpDot('Уникальный номер audit run.')}</th>
+              <th>Статус ${helpDot('Текущее состояние выполнения: pending/running/requires_fix/approved/failed.')}</th>
+              <th>Источник ${helpDot('openrouter = живой вызов, cache = результат взят из audit_cache.')}</th>
+              <th>Кэш ${helpDot('Показывает, был ли использован сохранённый ответ без нового внешнего вызова.')}</th>
+              <th>Попытки ${helpDot('Количество реальных попыток вызова внешнего провайдера.')}</th>
+              <th>Повторяемая ${helpDot('Можно ли автоматически повторить после ошибки.')}</th>
+              <th>Ошибка ${helpDot('Короткое последнее сообщение об ошибке (если было).')}</th>
               <th>Детали</th>
             </tr>
           </thead>
@@ -2538,7 +2553,7 @@ function renderAudits(){
     </div>
 
     <div class="panel">
-      <div class="panel-title">Детали запуска</div>
+      <div class="panel-title">Детали запуска ${helpDot('Подробный разбор выбранного run: результат, причины, тех. след и кнопки подтверждения.')}</div>
       ${renderAuditRunDetail(selected)}
     </div>
   `;

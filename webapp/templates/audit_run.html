@@ -34,13 +34,14 @@
     .module-chip { display: inline-flex; border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 999px; font-size: 12px; padding: 3px 9px; }
     .explain { margin-top: 8px; background: #f8fafc; border: 1px dashed #d1d5db; border-radius: 8px; padding: 8px; }
     .review-actions { margin-top: 10px; }
+    .header-help { margin-left: 6px; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
       <div>
-        <h1 style="margin:0; font-size:28px;">Аудит #<span id="run-id">__AUDIT_RUN_ID__</span></h1>
+        <h1 style="margin:0; font-size:28px;">Аудит #<span id="run-id">__AUDIT_RUN_ID__</span><span class="help header-help" title="Подробная карточка конкретного audit run: результат, риски, решение и тех. детали.">i</span></h1>
         <div class="small">Проверка результата внешнего аудита изменений</div>
       </div>
       <div class="row">
@@ -56,11 +57,11 @@
 
     <div class="panel">
       <details>
-        <summary><b>Нормализованный ответ (служебно)</b></summary>
+        <summary><b>Нормализованный ответ (служебно)</b> <span class="help" title="Ответ модели, приведённый к стабильной схеме для UI и логики статусов.">i</span></summary>
         <div id="normalized-json" class="mono" style="margin-top:8px;"></div>
       </details>
       <details style="margin-top:10px;">
-        <summary><b>Raw ответ провайдера (служебно)</b></summary>
+        <summary><b>Raw ответ провайдера (служебно)</b> <span class="help" title="Исходный ответ внешнего провайдера без нормализации. Нужен для инженерного разбора проблем парсинга/схемы.">i</span></summary>
         <div id="raw-json" class="mono" style="margin-top:8px;"></div>
       </details>
     </div>
