@@ -20,44 +20,48 @@
 
 <div class="nav">
 
-<button class="active" data-section="overview" onclick="setSection('overview')">
-Обзор
+<div class="nav-group-title">Главное</div>
+<button class="active" data-section="overview" onclick="setSection('overview')" title="Сводка KPI, расход, лиды и ключевые сигналы">
+<span class="nav-item-content"><span class="nav-icon">🏠</span><span class="nav-label">Обзор</span><span class="nav-help" data-help="Сводка KPI, расход, лиды и ключевые сигналы.">i</span></span>
 </button>
 
-<button data-section="creatives" onclick="setSection('creatives')">
-Объявления
+<div class="nav-group-title">Реклама</div>
+<button data-section="creatives" onclick="setSection('creatives')" title="Кампании и объявления: тексты, статусы, рекомендации">
+<span class="nav-item-content"><span class="nav-icon">📢</span><span class="nav-label">Кампании и объявления</span><span class="nav-help" data-help="Работа с объявлениями: тексты, статус, рекомендации по улучшению.">i</span></span>
 </button>
 
-<button data-section="structure" onclick="setSection('structure')">
-Структура
+<button data-section="structure" onclick="setSection('structure')" title="Структура кампаний: группы, ключи, объявления">
+<span class="nav-item-content"><span class="nav-icon">🧱</span><span class="nav-label">Структура кампаний</span><span class="nav-help" data-help="Показывает группы, ключи и структуру размещения объявлений.">i</span></span>
 </button>
 
-<button data-section="negatives" onclick="setSection('negatives')">
-Минус-слова
+<button data-section="negatives" onclick="setSection('negatives')" title="Минус-слова и блокировка нецелевого трафика">
+<span class="nav-item-content"><span class="nav-icon">⛔</span><span class="nav-label">Минус-слова</span><span class="nav-help" data-help="Исключение нецелевых запросов для снижения расходов и шума.">i</span></span>
 </button>
 
-<button data-section="forecast" onclick="setSection('forecast')">
-Прогноз
+<button data-section="forecast" onclick="setSection('forecast')" title="Прогноз показателей и план бюджета">
+<span class="nav-item-content"><span class="nav-icon">📈</span><span class="nav-label">Прогноз</span><span class="nav-help" data-help="Прогноз CTR/CPC/конверсии и ожидаемого бюджета.">i</span></span>
 </button>
 
-<button data-section="scoring" onclick="setSection('scoring')">
-Скоринг
+<div class="nav-group-title">Скоринг и активация</div>
+<button data-section="scoring" onclick="setSection('scoring')" title="Оценка посетителей по вероятности покупки">
+<span class="nav-item-content"><span class="nav-icon">🎯</span><span class="nav-label">Скоринг посетителей</span><span class="nav-help" data-help="Показывает горячие, тёплые и холодные сегменты с объяснением причин.">i</span></span>
 </button>
 
-<button data-section="scoring_creatives" onclick="setSection('scoring_creatives')">
-Креативы сегментов
+<button data-section="scoring_creatives" onclick="setSection('scoring_creatives')" title="Аудитории для активации и сегментные креативные гипотезы">
+<span class="nav-item-content"><span class="nav-icon">👥</span><span class="nav-label">Аудитории и активация</span><span class="nav-help" data-help="Подготовка и синхронизация сегментов в Директ для дожима аудиторий.">i</span></span>
 </button>
 
-<button data-section="scoring_templates" onclick="setSection('scoring_templates')">
-Шаблоны объявлений
+<button data-section="scoring_templates" onclick="setSection('scoring_templates')" title="Шаблоны баннеров и генерация вариантов по сегментам">
+<span class="nav-item-content"><span class="nav-icon">🖼️</span><span class="nav-label">Шаблоны баннеров</span><span class="nav-help" data-help="Генерация баннеров под сегмент и гипотезу с быстрым экспортом в кампании.">i</span></span>
 </button>
 
-<button data-section="actions" onclick="setSection('actions')">
-Журнал действий
+<div class="nav-group-title">Система</div>
+<button data-section="actions" onclick="setSection('actions')" title="История действий системы и операторов">
+<span class="nav-item-content"><span class="nav-icon">🧾</span><span class="nav-label">Журнал действий</span><span class="nav-help" data-help="Хронология изменений: что система рекомендовала и что было применено.">i</span></span>
 </button>
 
-<button data-section="diagnostics" onclick="setSection('diagnostics')">
-Диагностика
+<button data-section="diagnostics" onclick="setSection('diagnostics')" title="Проверка интеграций, API и состояния сервисов">
+<span class="nav-item-content"><span class="nav-icon">🛠️</span><span class="nav-label">Диагностика</span><span class="nav-help" data-help="Проверка API, БД и сервисов, чтобы быстро найти и устранить сбои.">i</span></span>
 </button>
 
 </div>

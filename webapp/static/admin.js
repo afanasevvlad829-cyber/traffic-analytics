@@ -76,11 +76,11 @@ function applyStandaloneScoringLayout(){
   const subtitle = document.getElementById('topbar-subtitle');
   const actions = document.getElementById('topbar-actions');
   if (CURRENT_SECTION === 'scoring_creatives') {
-    if (title) title.textContent = 'Креативы по сегментам';
-    if (subtitle) subtitle.textContent = 'Гипотезы креативов и офферов для горячих, тёплых и холодных сегментов';
+    if (title) title.textContent = 'Аудитории и активация';
+    if (subtitle) subtitle.textContent = 'Сегменты, выгрузки и активация в Директ по горячим, тёплым и холодным аудиториям';
   } else if (CURRENT_SECTION === 'scoring_templates') {
-    if (title) title.textContent = 'Шаблоны объявлений';
-    if (subtitle) subtitle.textContent = 'Вариации объявлений по cohort, с объяснением и привязкой к группе Direct';
+    if (title) title.textContent = 'Шаблоны баннеров';
+    if (subtitle) subtitle.textContent = 'Варианты креативов по сегментам с объяснением гипотез и связкой с группами Директ';
   } else {
     if (title) title.textContent = 'Скоринг посетителей';
     if (subtitle) subtitle.textContent = 'Оценка вероятности покупки и рекомендации для маркетинга';
@@ -89,8 +89,8 @@ function applyStandaloneScoringLayout(){
     actions.innerHTML = `
       <a class="btn ghost" href="/admin">Открыть обзор</a>
       <a class="btn ghost" href="/admin/scoring">Отчёт скоринга</a>
-      <a class="btn ghost" href="/admin/scoring/creatives">Креативы сегментов</a>
-      <a class="btn ghost" href="/admin/scoring/templates">Шаблоны объявлений</a>
+      <a class="btn ghost" href="/admin/scoring/creatives">Аудитории и активация</a>
+      <a class="btn ghost" href="/admin/scoring/templates">Шаблоны баннеров</a>
       <button class="btn" onclick="loadScoringDataAndRender()">Обновить данные</button>
       <button class="btn primary" onclick="rebuildScoring()">Пересчитать скоринг</button>
     `;
@@ -101,12 +101,22 @@ function applyStandaloneScoringLayout(){
     if (!['scoring', 'scoring_creatives', 'scoring_templates'].includes(section)) {
       btn.style.display = 'none';
     } else {
-      btn.textContent = section === 'scoring'
-        ? 'Скоринг'
+      const labelNode = btn.querySelector('.nav-label');
+      const label = section === 'scoring'
+        ? 'Скоринг посетителей'
         : section === 'scoring_creatives'
-          ? 'Креативы сегментов'
-          : 'Шаблоны объявлений';
+          ? 'Аудитории и активация'
+          : 'Шаблоны баннеров';
+      if (labelNode) {
+        labelNode.textContent = label;
+      } else {
+        btn.textContent = label;
+      }
     }
+  });
+
+  document.querySelectorAll('.nav-group-title').forEach(node => {
+    node.style.display = 'none';
   });
 }
 
@@ -238,9 +248,9 @@ function factorLabel(key){
     pageviews_gte_4: 'просмотры >= 4',
     pageviews_gte_8: 'просмотры >= 8',
     scroll_70: 'скролл 70%',
-    return_visitor: 'returning visitor',
-    high_intent_source: 'high-intent source',
-    bounce_session: 'bounce session'
+    return_visitor: 'повторный посетитель',
+    high_intent_source: 'высокоинтентный источник',
+    bounce_session: 'отказный визит'
   };
   return labels[key] || key;
 }
@@ -249,21 +259,21 @@ function sourceLabel(value){
   const v = String(value || '').trim().toLowerCase();
   const map = {
     yandex_direct: 'Яндекс Директ',
-    vk_ads: 'VK Ads',
+    vk_ads: 'VK Реклама',
     direct: 'Прямые заходы',
     organic: 'Органический поиск',
     referral: 'Реферальный трафик',
     social: 'Соцсети',
     messenger: 'Мессенджеры',
-    email: 'Email',
+    email: 'Электронная почта',
     ad: 'Реклама',
     internal: 'Внутренние переходы',
     unknown: 'Не определено',
     '': 'Не определено',
   };
   if (map[v]) return map[v];
-  if (v.includes('gmail')) return 'Email (Gmail)';
-  if (v.includes('mail')) return 'Email';
+  if (v.includes('gmail')) return 'Электронная почта (Gmail)';
+  if (v.includes('mail')) return 'Электронная почта';
   if (v.includes('direct')) return 'Прямые заходы';
   return value || 'Не определено';
 }
@@ -528,9 +538,9 @@ function renderSummary(){
   document.getElementById('summary-cards').innerHTML = `
     <div class="card"><div class="metric-label">Открытые креативы</div><div class="metric-value">${esc(s.open_creatives ?? 0)}</div></div>
     <div class="card"><div class="metric-label">Структурные задачи</div><div class="metric-value">${esc(s.structure_items ?? 0)}</div></div>
-    <div class="card"><div class="metric-label">Forecast review</div><div class="metric-value">${esc(s.forecast_items ?? 0)}</div></div>
+    <div class="card"><div class="metric-label">Прогнозные проверки</div><div class="metric-value">${esc(s.forecast_items ?? 0)}</div></div>
     <div class="card"><div class="metric-label">Одобрено</div><div class="metric-value">${esc(s.approved_actions ?? 0)}</div></div>
-    <div class="card"><div class="metric-label">Pending actions</div><div class="metric-value">${esc(s.pending_actions ?? 0)}</div></div>
+    <div class="card"><div class="metric-label">Ожидают решения</div><div class="metric-value">${esc(s.pending_actions ?? 0)}</div></div>
   `;
 }
 
@@ -561,14 +571,14 @@ function renderOverview(){
             <div class="row" style="justify-content:space-between">
               <div>
                 <div><b>${esc(r.campaign_name)}</b></div>
-                <div class="small muted">Ad ID: ${esc(r.ad_id)} · Group: ${esc(r.ad_group_id)}</div>
+                <div class="small muted">ID объявления: ${esc(r.ad_id)} · Группа: ${esc(r.ad_group_id)}</div>
               </div>
               ${confidenceBadge(r.prediction_confidence)}
             </div>
             <div class="row" style="margin-top:10px">
-              <span class="badge">Score ${esc(r.score)}</span>
+              <span class="badge">Скор ${esc(r.score)}</span>
               <span class="badge">CTR ${esc(r.ctr_pct)}%</span>
-              <span class="badge">Pred CTR ${esc(r.predicted_ctr_pct || '-')}%</span>
+              <span class="badge">Прогноз CTR ${esc(r.predicted_ctr_pct || '-')}%</span>
               ${statusBadge(r.decision)}
             </div>
             <div style="margin-top:10px" class="small">${esc(r.original_title || '')}</div>
@@ -588,30 +598,30 @@ function renderOverview(){
           ${structure.length ? structure.map(r => `
             <div class="panel" style="padding:12px;margin-bottom:10px">
               <div><b>${esc(r.campaign_name)}</b></div>
-              <div class="small muted">Group: ${esc(r.ad_group_id)}</div>
+                <div class="small muted">Группа: ${esc(r.ad_group_id)}</div>
               <div class="row" style="margin-top:10px">
                 ${statusBadge(r.action_status)}
-                <button class="btn primary" onclick="structureAction(${JSON.stringify(r.campaign_name)}, ${r.ad_group_id}, 'APPLY_SPLIT')">Apply split</button>
+                <button class="btn primary" onclick="structureAction(${JSON.stringify(r.campaign_name)}, ${r.ad_group_id}, 'APPLY_SPLIT')">Разделить группу</button>
                 <button class="btn ghost" onclick="copyContext('ST-${r.ad_group_id}')">Скопировать для AI</button>
               </div>
             </div>
-          `).join('') : `<div class="empty">Нет structural items</div>`}
+          `).join('') : `<div class="empty">Нет структурных проблем</div>`}
         </div>
 
         <div class="panel">
-          <div class="panel-title">Forecast review</div>
+          <div class="panel-title">Проверка прогноза</div>
           ${forecast.length ? forecast.map(r => `
             <div class="panel" style="padding:12px;margin-bottom:10px">
               <div><b>${esc(r.campaign_name)}</b></div>
-              <div class="small muted">Ad ID: ${esc(r.ad_id)} · ${esc(r.forecast_status || '-')}</div>
+              <div class="small muted">ID объявления: ${esc(r.ad_id)} · ${esc(r.forecast_status || '-')}</div>
               <div class="row" style="margin-top:10px">
-                <span class="badge">Pred CTR ${esc(r.predicted_ctr_pct || '-')}</span>
-                <span class="badge">Actual CTR ${esc(r.actual_ctr_pct || '-')}</span>
-                <span class="badge">Pred CPC ${esc(r.predicted_cpc || '-')}</span>
-                <span class="badge">Actual CPC ${esc(r.actual_cpc || '-')}</span>
+                <span class="badge">Прогноз CTR ${esc(r.predicted_ctr_pct || '-')}</span>
+                <span class="badge">Факт CTR ${esc(r.actual_ctr_pct || '-')}</span>
+                <span class="badge">Прогноз CPC ${esc(r.predicted_cpc || '-')}</span>
+                <span class="badge">Факт CPC ${esc(r.actual_cpc || '-')}</span>
               </div>
             </div>
-          `).join('') : `<div class="empty">Нет forecast review</div>`}
+          `).join('') : `<div class="empty">Нет данных проверки прогноза</div>`}
         </div>
       </div>
     </div>
@@ -626,7 +636,7 @@ function renderCreatives(){
         <thead>
           <tr>
             <th>Кампания</th>
-            <th>Ad / Group</th>
+            <th>Объявление / Группа</th>
             <th>Текущее объявление</th>
             <th>Метрики</th>
             <th>Варианты</th>
@@ -641,23 +651,23 @@ function renderCreatives(){
                 <span class="small muted">${statusBadge(r.decision)} ${confidenceBadge(r.prediction_confidence)}</span>
               </td>
               <td>
-                Ad ID: ${esc(r.ad_id)}<br>
-                Group: ${esc(r.ad_group_id)}
+                ID объявления: ${esc(r.ad_id)}<br>
+                Группа: ${esc(r.ad_group_id)}
               </td>
               <td>
                 <div><b>T1:</b> ${esc(r.original_title || '')}</div>
                 <div><b>T2:</b> ${esc(r.original_title_2 || '')}</div>
-                <div><b>Body:</b> ${esc(r.original_body_text || '')}</div>
+                <div><b>Текст:</b> ${esc(r.original_body_text || '')}</div>
                 <div class="chips">
                   ${(String(r.sample_queries || '').split('|').map(x=>x.trim()).filter(Boolean).slice(0,8)).map(q => `<span class="chip">${esc(q)}</span>`).join('')}
                 </div>
               </td>
               <td>
-                <div>Score: <b>${esc(r.score)}</b></div>
+                <div>Скор: <b>${esc(r.score)}</b></div>
                 <div>CTR: <b>${esc(r.ctr_pct)}%</b></div>
                 <div>CPC: <b>${esc(r.cpc)}</b></div>
-                <div>Pred CTR: <b>${esc(r.predicted_ctr_pct || '-')}</b></div>
-                <div>Pred CPC: <b>${esc(r.predicted_cpc || '-')}</b></div>
+                <div>Прогноз CTR: <b>${esc(r.predicted_ctr_pct || '-')}</b></div>
+                <div>Прогноз CPC: <b>${esc(r.predicted_cpc || '-')}</b></div>
               </td>
               <td>
                 <div class="code">A:
@@ -942,9 +952,9 @@ function renderScoring(){
         <div class="col-md-3 col-sm-6">
           <select id="scoring-segment-filter" class="form-select">
             <option value="all">Все сегменты</option>
-            <option value="hot">Hot</option>
-            <option value="warm">Warm</option>
-            <option value="cold">Cold</option>
+            <option value="hot">Горячие</option>
+            <option value="warm">Тёплые</option>
+            <option value="cold">Холодные</option>
           </select>
         </div>
         <div class="col-md-4 col-sm-12">
@@ -997,27 +1007,27 @@ function renderScoringCreatives(){
         <div class="panel-title" style="margin-bottom:0">План креативов по сегментам</div>
         <div class="small muted">${esc(plan.count || 0)} идей · окно ${esc(plan.days || 90)} дней</div>
       </div>
-      <div class="small muted" style="margin-top:6px">Можно использовать как основу для объявлений в Direct и сегментных ретаргет-кампаний.</div>
+      <div class="small muted" style="margin-top:6px">Можно использовать как основу для объявлений в Директ и сегментных ретаргет-кампаний.</div>
     </div>
     <div class="panel">
       <div class="row" style="justify-content:space-between">
-        <div class="panel-title" style="margin-bottom:0">Аудитории и активация в Direct</div>
+        <div class="panel-title" style="margin-bottom:0">Аудитории и активация в Директ</div>
         <div class="small muted">окно ${esc(activationPlan.days || cohorts.days || 90)} дней</div>
       </div>
       <div class="row" style="margin-top:8px">
-        <button class="btn ghost" onclick="bootstrapScoringDirect(false)">Bootstrap Direct (dry-run)</button>
-        <button class="btn ghost" onclick="bootstrapScoringDirect(true)">Bootstrap Direct (create)</button>
-        <button class="btn" onclick="syncScoringDirect(true)">Dry-run sync в Direct</button>
-        <button class="btn primary" onclick="syncScoringDirect(false)">Выполнить sync в Direct</button>
+        <button class="btn ghost" onclick="bootstrapScoringDirect(false)">Подготовить сущности в Директ (проверка)</button>
+        <button class="btn ghost" onclick="bootstrapScoringDirect(true)">Создать сущности в Директ</button>
+        <button class="btn" onclick="syncScoringDirect(true)">Проверка синхронизации</button>
+        <button class="btn primary" onclick="syncScoringDirect(false)">Синхронизировать в Директ</button>
       </div>
       <div class="small muted" style="margin-top:10px">
-        Cohorts: ${esc(activationPlan.count || 0)} · Готовы к активации: ${esc(activationPlan.eligible_count || 0)} · Минимум размера: ${esc(activationPlan.min_audience_size || 100)}
+        Аудиторий: ${esc(activationPlan.count || 0)} · Готовы к активации: ${esc(activationPlan.eligible_count || 0)} · Минимальный размер: ${esc(activationPlan.min_audience_size || 100)}
       </div>
       <div class="table-wrap">
         <table class="table">
           <thead>
             <tr>
-              <th>Cohort</th>
+              <th>Аудитория</th>
               <th>Сегмент</th>
               <th>ОС</th>
               <th>Окно</th>
@@ -1037,7 +1047,7 @@ function renderScoringCreatives(){
                 <td>${c.eligible ? '<span class="badge good">Готов</span>' : '<span class="badge warn">Мало данных</span>'}</td>
                 <td><span class="badge">${esc(c.direct_tag || '-')}</span></td>
               </tr>
-            `).join('') : `<tr><td colspan="7"><div class="empty">Нет cohort-данных</div></td></tr>`}
+            `).join('') : `<tr><td colspan="7"><div class="empty">Нет данных по аудиториям</div></td></tr>`}
           </tbody>
         </table>
       </div>
@@ -1045,11 +1055,11 @@ function renderScoringCreatives(){
     </div>
     <div class="panel">
       <div class="row" style="justify-content:space-between">
-        <div class="panel-title" style="margin-bottom:0">Реакция в Direct по scoring-тегам</div>
+        <div class="panel-title" style="margin-bottom:0">Реакция в Директ по scoring-тегам</div>
         <div class="small muted">${esc(reaction.count || 0)} тегов · ${esc(reaction.days || 30)} дней</div>
       </div>
       <div class="small muted" style="margin-top:6px">
-        Impressions: ${esc((reaction.totals || {}).impressions || 0)} · Clicks: ${esc((reaction.totals || {}).clicks || 0)} · Cost: ${esc((reaction.totals || {}).cost || 0)}
+        Показы: ${esc((reaction.totals || {}).impressions || 0)} · Клики: ${esc((reaction.totals || {}).clicks || 0)} · Расход: ${esc((reaction.totals || {}).cost || 0)}
       </div>
       <div class="table-wrap" style="margin-top:8px">
         <table class="table">
@@ -1121,14 +1131,22 @@ function renderScoringTemplates(){
   const isReady = payload.ready !== false;
 
   const totalVariants = items.reduce((acc, row) => acc + ((row.variants || []).length), 0);
+  const totalAudience = items.reduce((acc, row) => acc + Number(row.audience_size || 0), 0);
+  const avgAudience = items.length ? Math.round(totalAudience / items.length) : 0;
 
   document.getElementById('section-scoring_templates').innerHTML = `
     <div class="panel">
       <div class="row" style="justify-content:space-between">
-        <div class="panel-title" style="margin-bottom:0">Шаблоны объявлений по cohort</div>
-        <div class="small muted">cohorts: ${esc(payload.count || 0)} · вариантов: ${esc(totalVariants)} · окно: ${esc(days)}д</div>
+        <div class="panel-title" style="margin-bottom:0">Шаблоны баннеров по сегментам</div>
+        <div class="small muted">аудиторий: ${esc(payload.count || 0)} · вариантов: ${esc(totalVariants)} · окно: ${esc(days)} дней</div>
       </div>
-      <div class="small muted" style="margin-top:6px">Для каждой группы показаны несколько текстовых вариаций и объяснение, почему выбран такой угол.</div>
+      <div class="small muted" style="margin-top:6px">Выберите аудиторию, проверьте гипотезу и сгенерируйте баннеры под нужный сегмент.</div>
+      <div class="template-kpi-grid">
+        <div class="template-kpi"><div class="label">Период данных</div><div class="value">${esc(days)} дн.</div></div>
+        <div class="template-kpi"><div class="label">Аудиторий</div><div class="value">${esc(items.length)}</div></div>
+        <div class="template-kpi"><div class="label">Вариантов</div><div class="value">${esc(totalVariants)}</div></div>
+        <div class="template-kpi"><div class="label">Средний размер аудитории</div><div class="value">${esc(avgAudience)}</div></div>
+      </div>
       <div class="row scoring-filter-row mt-3">
         <div class="col-md-2 col-sm-6">
           <select id="templates-days-filter" class="form-select">
@@ -1139,9 +1157,9 @@ function renderScoringTemplates(){
         </div>
         <div class="col-md-2 col-sm-6">
           <select id="templates-min-filter" class="form-select">
-            <option value="1" ${minAudience === 1 ? 'selected' : ''}>min 1</option>
-            <option value="50" ${minAudience === 50 ? 'selected' : ''}>min 50</option>
-            <option value="100" ${minAudience === 100 ? 'selected' : ''}>min 100</option>
+            <option value="1" ${minAudience === 1 ? 'selected' : ''}>мин. 1</option>
+            <option value="50" ${minAudience === 50 ? 'selected' : ''}>мин. 50</option>
+            <option value="100" ${minAudience === 100 ? 'selected' : ''}>мин. 100</option>
           </select>
         </div>
         <div class="col-md-2 col-sm-6">
@@ -1164,22 +1182,24 @@ function renderScoringTemplates(){
           <button class="btn ghost" onclick="loadScoringDataAndRender()">Обновить</button>
         </div>
       </div>
-      ${isReady ? '' : `<div class="code" style="margin-top:10px">API ad-templates недоступен: ${esc(payload.error || 'unknown error')}</div>`}
+      ${isReady ? '' : `<div class="code" style="margin-top:10px">API шаблонов недоступен: ${esc(payload.error || 'неизвестная ошибка')}</div>`}
     </div>
 
-    ${items.length ? items.map((row) => `
+    ${items.length ? items.map((row) => {
+      const safeId = safeDomId(row.cohort_name || '');
+      return `
       <div class="panel">
         <div class="row" style="justify-content:space-between">
           <div>
             <div><b>${esc(row.cohort_name || '-')}</b> · ${segmentBadge(row.segment)}</div>
             <div class="small muted">
-              Аудитория: ${esc(row.audience_size || 0)} · Окно: ${esc(row.window_days || days)}д · ОС: ${esc((row.os_root || 'all').toUpperCase())}
+              Аудитория: ${esc(row.audience_size || 0)} · Окно: ${esc(row.window_days || days)} дн. · ОС: ${esc((row.os_root || 'all').toUpperCase())}
             </div>
           </div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
-            <div class="small muted">Тег: <span class="badge">${esc(row.direct_tag || '-')}</span></div>
-            <div id="banner-inline-status-${safeDomId(row.cohort_name || '')}" class="small muted" style="min-width:220px;text-align:right"></div>
-            <button id="banner-generate-btn-${safeDomId(row.cohort_name || '')}" class="btn primary" onclick="generateScoringBanners('${escapeJsSingleQuoted(row.cohort_name || '')}')">
+            <div class="small muted">Тег Директ: <span class="badge">${esc(row.direct_tag || '-')}</span></div>
+            <div id="banner-inline-status-${safeId}" class="small muted" style="min-width:220px;text-align:right"></div>
+            <button id="banner-generate-btn-${safeId}" class="btn primary" onclick="generateScoringBanners('${escapeJsSingleQuoted(row.cohort_name || '')}')">
               Сгенерировать баннеры
             </button>
           </div>
@@ -1187,23 +1207,25 @@ function renderScoringTemplates(){
 
         <div class="grid-2" style="margin-top:10px">
           <div class="card">
-            <div class="metric-label">Группа Direct</div>
+            <div class="metric-label">Кратко по сегменту</div>
+            <div class="code">Причина: ${esc(reasonLabel(row.short_reason_hint || 'unknown'))}
+Источник: ${esc(sourceLabel(row.source_hint || 'unknown'))}
+Сегмент: ${esc(String(row.segment || '-').toUpperCase())}
+Гипотеза: ${esc(shortText(row.kpi_hypothesis?.objective || '-', 140))}</div>
+          </div>
+          <div class="card">
+            <div class="metric-label">Связка с Директ</div>
             <div class="code">ad_group_id: ${esc(row.ad_group_id || '-')}
 retargeting_list_id: ${esc(row.retargeting_list_id || '-')}
 goal_id: ${esc(row.goal_id || '-')}
-priority: ${esc(row.strategy_priority || '-')}</div>
-          </div>
-          <div class="card">
-            <div class="metric-label">Подтверждение группы</div>
-            <div class="code">segment: ${esc(row.segment || '-')}
-short_reason_hint: ${esc(reasonLabel(row.short_reason_hint || 'unknown'))}
-source_hint: ${esc(sourceLabel(row.source_hint || 'unknown'))}</div>
+Приоритет: ${esc(row.strategy_priority || '-')}</div>
           </div>
         </div>
 
-        <div class="card" style="margin-top:10px">
-          <div class="metric-label">KPI-гипотеза (CTR/STR и конверсия)</div>
-          <div class="code">Цель: ${esc(row.kpi_hypothesis?.objective || '-')}
+        <details class="template-details">
+          <summary>KPI-гипотеза (раскрыть детали)</summary>
+          <div class="template-details-content">
+            <div class="code">Цель: ${esc(row.kpi_hypothesis?.objective || '-')}
 Окно сравнения: ${esc(row.kpi_hypothesis?.comparison_window_days || '-')}д
 
 Экономика:
@@ -1211,7 +1233,7 @@ source_hint: ${esc(sourceLabel(row.source_hint || 'unknown'))}</div>
 - Маржа: ${esc(numText(row.kpi_hypothesis?.economics?.margin_pct, 0))}% (${esc(numText(row.kpi_hypothesis?.economics?.margin_rub, 0))} ₽)
 - Доля CAC от маржи (потолок): ${esc(numText(row.kpi_hypothesis?.economics?.max_marketing_share_of_margin_pct, 1))}%
 
-Baseline (если уже есть реакция):
+Базовые факт-метрики (если уже есть реакция):
 - Показы: ${esc(row.kpi_hypothesis?.baseline?.impressions ?? '-')}
 - Клики: ${esc(row.kpi_hypothesis?.baseline?.clicks ?? '-')}
 - CTR(STR): ${esc(numText(row.kpi_hypothesis?.baseline?.ctr_pct, 2))}%
@@ -1219,12 +1241,12 @@ Baseline (если уже есть реакция):
 - Расход: ${esc(numText(row.kpi_hypothesis?.baseline?.cost_rub, 2))} ₽
 
 Что ожидаем:
-- CTR(STR): >= ${esc(numText(row.kpi_hypothesis?.expected?.ctr_str_min_pct, 2))}% (target ${esc(numText(row.kpi_hypothesis?.expected?.ctr_str_target_pct, 2))}%)
-- CR клик->заявка: >= ${esc(numText(row.kpi_hypothesis?.expected?.click_to_lead_min_pct ?? row.kpi_hypothesis?.expected?.cvr_to_lead_min_pct, 2))}% (target ${esc(numText(row.kpi_hypothesis?.expected?.click_to_lead_target_pct ?? row.kpi_hypothesis?.expected?.cvr_to_lead_target_pct, 2))}%)
+- CTR(STR): >= ${esc(numText(row.kpi_hypothesis?.expected?.ctr_str_min_pct, 2))}% (цель ${esc(numText(row.kpi_hypothesis?.expected?.ctr_str_target_pct, 2))}%)
+- CR клик->заявка: >= ${esc(numText(row.kpi_hypothesis?.expected?.click_to_lead_min_pct ?? row.kpi_hypothesis?.expected?.cvr_to_lead_min_pct, 2))}% (цель ${esc(numText(row.kpi_hypothesis?.expected?.click_to_lead_target_pct ?? row.kpi_hypothesis?.expected?.cvr_to_lead_target_pct, 2))}%)
 - Факт CR клик->заявка (${esc(row.kpi_hypothesis?.expected?.reference_window_days ?? row.conversion_reference?.selected_window_days ?? '-') }д): ${esc(numText(row.kpi_hypothesis?.expected?.click_to_lead_actual_pct, 2))}% (${esc(row.kpi_hypothesis?.expected?.click_to_lead_basis || 'model')})
-- Цена клика (CPC): target <= ${esc(numText(row.kpi_hypothesis?.expected?.target_cpc_rub, 2))} ₽ (max ${esc(numText(row.kpi_hypothesis?.expected?.max_cpc_rub ?? row.kpi_hypothesis?.expected?.avg_cpc_max_rub, 2))} ₽)
-- Цена заявки (CPL): target <= ${esc(numText(row.kpi_hypothesis?.expected?.target_cpl_rub, 2))} ₽ (max ${esc(numText(row.kpi_hypothesis?.expected?.max_cpl_rub, 2))} ₽)
-- Цена оплаты (CAC): target <= ${esc(numText(row.kpi_hypothesis?.expected?.target_cac_pay_rub ?? row.kpi_hypothesis?.expected?.target_cpa_rub, 2))} ₽ (max ${esc(numText(row.kpi_hypothesis?.expected?.max_cac_pay_rub, 2))} ₽)
+- Цена клика (CPC): цель <= ${esc(numText(row.kpi_hypothesis?.expected?.target_cpc_rub, 2))} ₽ (макс ${esc(numText(row.kpi_hypothesis?.expected?.max_cpc_rub ?? row.kpi_hypothesis?.expected?.avg_cpc_max_rub, 2))} ₽)
+- Цена заявки (CPL): цель <= ${esc(numText(row.kpi_hypothesis?.expected?.target_cpl_rub, 2))} ₽ (макс ${esc(numText(row.kpi_hypothesis?.expected?.max_cpl_rub, 2))} ₽)
+- Цена оплаты (CAC): цель <= ${esc(numText(row.kpi_hypothesis?.expected?.target_cac_pay_rub ?? row.kpi_hypothesis?.expected?.target_cpa_rub, 2))} ₽ (макс ${esc(numText(row.kpi_hypothesis?.expected?.max_cac_pay_rub, 2))} ₽)
 - CR заявка->оплата (модель): ${esc(numText(row.kpi_hypothesis?.expected?.lead_to_payment_cvr_pct, 2))}%
 
 Минимум для оценки:
@@ -1240,45 +1262,52 @@ ${esc(row.kpi_hypothesis?.success_rule || '-')}
 
 Примечание:
 ${esc(row.kpi_hypothesis?.data_gap_note || '-')}</div>
-        </div>
+          </div>
+        </details>
 
-        <div class="table-wrap" style="margin-top:10px">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Вариант</th>
-                <th>Угол</th>
-                <th>Заголовок</th>
-                <th>Текст</th>
-                <th>CTA</th>
-                <th>Почему так</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${(row.variants || []).length ? (row.variants || []).map((v, idx) => `
-                <tr>
-                  <td><span class="badge">${esc(v.variant_key || `v${idx + 1}`)}</span></td>
-                  <td>${esc(v.creative_angle || '-')}</td>
-                  <td>${esc(v.headline || '-')}</td>
-                  <td>${esc(shortText(v.body || '-', 180))}</td>
-                  <td>${esc(v.cta || '-')}</td>
-                  <td>${esc(shortText(v.why_this || '-', 200))}</td>
-                </tr>
-              `).join('') : `<tr><td colspan="6"><div class="empty">Нет вариантов для cohort</div></td></tr>`}
-            </tbody>
-          </table>
-        </div>
+        <details class="template-details" open>
+          <summary>Варианты сообщений для этой аудитории</summary>
+          <div class="template-details-content">
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Вариант</th>
+                    <th>Креативный угол</th>
+                    <th>Заголовок</th>
+                    <th>Текст</th>
+                    <th>CTA</th>
+                    <th>Почему так</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(row.variants || []).length ? (row.variants || []).map((v, idx) => `
+                    <tr>
+                      <td><span class="badge">${esc(v.variant_key || `v${idx + 1}`)}</span></td>
+                      <td>${esc(v.creative_angle || '-')}</td>
+                      <td>${esc(v.headline || '-')}</td>
+                      <td>${esc(shortText(v.body || '-', 180))}</td>
+                      <td>${esc(v.cta || '-')}</td>
+                      <td>${esc(shortText(v.why_this || '-', 200))}</td>
+                    </tr>
+                  `).join('') : `<tr><td colspan="6"><div class="empty">Нет вариантов для этой аудитории</div></td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
 
         <div class="card" style="margin-top:10px">
           <div class="metric-label">Сгенерированные баннеры</div>
-          <div id="banners-${safeDomId(row.cohort_name || '')}" class="small muted" style="margin-top:8px">
+          <div id="banners-${safeId}" class="small muted" style="margin-top:8px">
             Пока не сгенерировано. Нажмите «Сгенерировать баннеры».
           </div>
         </div>
       </div>
-    `).join('') : `
+    `;
+    }).join('') : `
       <div class="panel">
-        <div class="empty">Нет cohort-данных для шаблонов. Проверьте scoring и activation plan.</div>
+        <div class="empty">Нет данных для шаблонов баннеров. Проверьте скоринг и план активации.</div>
       </div>
     `}
   `;
@@ -1315,31 +1344,31 @@ async function loadScoringData(){
 
   const summary = summaryRes.status === 'fulfilled'
     ? summaryRes.value
-    : { ready: false, error: summaryRes.reason?.message || 'summary api failed' };
+    : { ready: false, error: summaryRes.reason?.message || 'ошибка API summary' };
   const visitors = visitorsRes.status === 'fulfilled'
     ? visitorsRes.value
-    : { ready: false, items: [], count: 0, limit: SCORING_FILTERS.limit || 100, error: visitorsRes.reason?.message || 'visitors api failed' };
+    : { ready: false, items: [], count: 0, limit: SCORING_FILTERS.limit || 100, error: visitorsRes.reason?.message || 'ошибка API visitors' };
   const timeseries = timeseriesRes.status === 'fulfilled'
     ? timeseriesRes.value
-    : { ready: false, dates: [], hot: [], warm: [], cold: [], error: timeseriesRes.reason?.message || 'timeseries api failed' };
+    : { ready: false, dates: [], hot: [], warm: [], cold: [], error: timeseriesRes.reason?.message || 'ошибка API timeseries' };
   const audience = audienceRes.status === 'fulfilled'
     ? audienceRes.value
-    : { ready: false, gender_age: [], source_mix: [], device_mix: [], error: audienceRes.reason?.message || 'audience api failed' };
+    : { ready: false, gender_age: [], source_mix: [], device_mix: [], error: audienceRes.reason?.message || 'ошибка API audience' };
   const attribution = attributionRes.status === 'fulfilled'
     ? attributionRes.value
-    : { ready: false, status: 'error', direct_pct: 0, unknown_pct: 0, top_sources: [], error: attributionRes.reason?.message || 'attribution api failed' };
+    : { ready: false, status: 'error', direct_pct: 0, unknown_pct: 0, top_sources: [], error: attributionRes.reason?.message || 'ошибка API attribution' };
   const creativePlan = creativePlanRes.status === 'fulfilled'
     ? creativePlanRes.value
-    : { ready: false, items: [], count: 0, days: 90, error: creativePlanRes.reason?.message || 'creative plan api failed' };
+    : { ready: false, items: [], count: 0, days: 90, error: creativePlanRes.reason?.message || 'ошибка API creative plan' };
   const cohorts = cohortsRes.status === 'fulfilled'
     ? cohortsRes.value
-    : { ready: false, cohorts: [], matrix: [], days: 90, error: cohortsRes.reason?.message || 'cohorts api failed' };
+    : { ready: false, cohorts: [], matrix: [], days: 90, error: cohortsRes.reason?.message || 'ошибка API cohorts' };
   const activationPlan = activationPlanRes.status === 'fulfilled'
     ? activationPlanRes.value
-    : { ready: false, cohorts: [], count: 0, eligible_count: 0, min_audience_size: 100, error: activationPlanRes.reason?.message || 'activation plan api failed' };
+    : { ready: false, cohorts: [], count: 0, eligible_count: 0, min_audience_size: 100, error: activationPlanRes.reason?.message || 'ошибка API activation plan' };
   const reaction = reactionRes.status === 'fulfilled'
     ? reactionRes.value
-    : { ready: false, items: [], count: 0, totals: { impressions: 0, clicks: 0, cost: 0 }, error: reactionRes.reason?.message || 'activation reaction api failed' };
+    : { ready: false, items: [], count: 0, totals: { impressions: 0, clicks: 0, cost: 0 }, error: reactionRes.reason?.message || 'ошибка API activation reaction' };
   const adTemplates = adTemplatesRes.status === 'fulfilled'
     ? adTemplatesRes.value
     : {
@@ -1350,7 +1379,7 @@ async function loadScoringData(){
       variants: Number(templatesState.variants || 3),
       count: 0,
       items: [],
-      error: adTemplatesRes.reason?.message || 'ad templates api failed',
+      error: adTemplatesRes.reason?.message || 'ошибка API ad templates',
     };
 
   DASH.scoring_summary = summary || {};
@@ -1529,10 +1558,17 @@ async function generateScoringBanners(cohortName){
       renderBannerProgressState(container, safeId, 100, 'Генерация завершена, но изображения не получены.');
       return;
     }
+    const costText = Number.isFinite(Number(data.cost_usd))
+      ? ` · Стоимость: ~$${esc(numText(Number(data.cost_usd), 4))}`
+      : '';
+    const usage = data.usage || {};
+    const usageText = Number(usage.total_tokens || 0) > 0
+      ? ` · Токены: ${esc(numText(Number(usage.total_tokens || 0), 0))}`
+      : '';
 
     container.innerHTML = `
       <div class="small muted" style="margin-bottom:8px">
-        Сгенерировано: ${esc(data.generated_count || images.length)} · Провайдер: ${esc(data.provider_used || data.provider_requested || '-')} · Модель: ${esc(data.model_used || data.model || '-')} · Размер: ${esc(data.size || '-')}
+        Сгенерировано: ${esc(data.generated_count || images.length)} · Провайдер: ${esc(data.provider_used || data.provider_requested || '-')} · Модель: ${esc(data.model_used || data.model || '-')} · Размер: ${esc(data.size || '-')}${costText}${usageText}
       </div>
       <div class="banner-grid">
         ${images.map((img) => `
@@ -1578,7 +1614,7 @@ async function rebuildScoring(){
 
 async function syncScoringDirect(dryRun=true){
   if (!dryRun) {
-    const ok = confirm('Выполнить запись в Direct API? Проверьте SCORING_DIRECT_SYNC_ENABLED и mapping.');
+    const ok = confirm('Выполнить запись в API Директ? Проверьте SCORING_DIRECT_SYNC_ENABLED и сопоставления ID.');
     if (!ok) return;
   }
   try {
@@ -1593,22 +1629,22 @@ async function syncScoringDirect(dryRun=true){
     });
     const sync = data.sync || {};
     alert(
-      `Direct sync: ${data.dry_run ? 'dry-run' : 'execute'}\n` +
-      `eligible: ${data.eligible_count || 0}\n` +
-      `attempted: ${sync.attempted || 0}\n` +
-      `applied: ${sync.applied || 0}\n` +
-      `skipped: ${sync.skipped || 0}\n` +
-      `errors: ${sync.errors || 0}`
+      `Синхронизация в Директ: ${data.dry_run ? 'проверка' : 'выполнение'}\n` +
+      `Готово к активации: ${data.eligible_count || 0}\n` +
+      `Попыток: ${sync.attempted || 0}\n` +
+      `Применено: ${sync.applied || 0}\n` +
+      `Пропущено: ${sync.skipped || 0}\n` +
+      `Ошибок: ${sync.errors || 0}`
     );
     await loadScoringDataAndRender();
   } catch (e) {
-    alert('Ошибка sync в Direct: ' + e.message);
+    alert('Ошибка синхронизации в Директ: ' + e.message);
   }
 }
 
 async function bootstrapScoringDirect(apply=false){
   if (apply) {
-    const ok = confirm('Создать сущности в Direct и записать ID в env?');
+    const ok = confirm('Создать сущности в Директ и записать ID в .env?');
     if (!ok) return;
   }
   try {
@@ -1624,17 +1660,17 @@ async function bootstrapScoringDirect(apply=false){
     });
     const b = data.bootstrap || {};
     alert(
-      `Bootstrap Direct: ${data.apply ? 'create' : 'dry-run'}\n` +
+      `Подготовка сущностей Директ: ${data.apply ? 'создание' : 'проверка'}\n` +
       `campaign_id: ${data.campaign_id || '-'}\n` +
-      `cohorts_selected: ${data.cohorts_selected || 0}\n` +
-      `created_adgroups: ${b.created_adgroups || 0}\n` +
-      `created_lists: ${b.created_retargeting_lists || 0}\n` +
-      `attached_targets: ${b.attached_audience_targets || 0}\n` +
-      `errors: ${b.errors || 0}`
+      `Выбрано аудиторий: ${data.cohorts_selected || 0}\n` +
+      `Создано групп: ${b.created_adgroups || 0}\n` +
+      `Создано списков: ${b.created_retargeting_lists || 0}\n` +
+      `Подключено таргетов: ${b.attached_audience_targets || 0}\n` +
+      `Ошибок: ${b.errors || 0}`
     );
     await loadScoringDataAndRender();
   } catch (e) {
-    alert('Ошибка bootstrap Direct: ' + e.message);
+    alert('Ошибка подготовки сущностей Директ: ' + e.message);
   }
 }
 
@@ -1672,7 +1708,7 @@ async function openScoringDetails(visitorId){
 
   const html = `
     <div class="panel">
-      <div class="panel-title">Visitor ${esc(data.visitor_id || '')}</div>
+      <div class="panel-title">Посетитель ${esc(data.visitor_id || '')}</div>
     </div>
 
     <div class="panel">
@@ -1699,8 +1735,8 @@ async function openScoringDetails(visitorId){
 
     <div class="panel">
       <div class="panel-title">Блок 5: Техническое</div>
-      <div class="code">- source: ${esc(sourceText || '-')}
-- source_mode: ${esc(sourceMode)}
+      <div class="code">- источник: ${esc(sourceText || '-')}
+- режим источника: ${esc(sourceMode)}
 - рассчитан: ${esc(data.scored_at || '-')}</div>
     </div>
   `;

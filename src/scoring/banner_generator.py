@@ -66,6 +66,58 @@ def _openrouter_headers(token: str) -> dict[str, str]:
     return headers
 
 
+def _to_float(value: Any) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _json_path_float(payload: dict[str, Any], path: str) -> float | None:
+    node: Any = payload
+    for part in path.split("."):
+        if not isinstance(node, dict):
+            return None
+        node = node.get(part)
+    return _to_float(node)
+
+
+def _openrouter_remaining_credits(token: str, timeout: int = 20) -> tuple[float | None, str | None]:
+    endpoint = f"{_openrouter_base_url()}/credits"
+    headers = _openrouter_headers(token)
+    headers.pop("Content-Type", None)
+    try:
+        resp = requests.get(endpoint, headers=headers, timeout=timeout)
+        if resp.status_code >= 400:
+            return None, _extract_http_error(resp)
+        payload = resp.json() if resp.content else {}
+        if not isinstance(payload, dict):
+            return None, "credits response is not json object"
+
+        total_credits = _json_path_float(payload, "data.total_credits")
+        total_usage = _json_path_float(payload, "data.total_usage")
+        if total_credits is not None and total_usage is not None:
+            return max(total_credits - total_usage, 0.0), None
+
+        for key in (
+            "data.credits",
+            "data.remaining",
+            "data.remaining_credits",
+            "remaining",
+            "credits",
+            "balance",
+        ):
+            value = _json_path_float(payload, key)
+            if value is not None:
+                return max(value, 0.0), None
+
+        return None, "credits fields were not found in response"
+    except Exception as exc:  # noqa: BLE001
+        return None, str(exc)
+
+
 def _aspect_ratio_from_size(size: str) -> str:
     raw = str(size or "").strip().lower()
     mapping = {
@@ -86,12 +138,16 @@ def _openrouter_image_bytes(
     size: str,
     token: str,
     timeout: int,
-) -> tuple[list[bytes], str]:
+) -> tuple[list[bytes], str, dict[str, Any]]:
     endpoint = f"{_openrouter_base_url()}/chat/completions"
     headers = _openrouter_headers(token)
     aspect_ratio = _aspect_ratio_from_size(size)
     images: list[bytes] = []
     last_error = ""
+    prompt_tokens = 0
+    completion_tokens = 0
+    total_tokens = 0
+    cost_reported: float | None = None
 
     for _ in range(max(1, n)):
         payload: dict[str, Any] = {
@@ -107,6 +163,17 @@ def _openrouter_image_bytes(
                 last_error = f"model={model} | {_extract_http_error(resp)}"
                 continue
             body = resp.json()
+            usage = body.get("usage") if isinstance(body, dict) else {}
+            if isinstance(usage, dict):
+                prompt_tokens += int(usage.get("prompt_tokens") or usage.get("promptTokens") or 0)
+                completion_tokens += int(usage.get("completion_tokens") or usage.get("completionTokens") or 0)
+                total_tokens += int(usage.get("total_tokens") or usage.get("totalTokens") or 0)
+                usage_cost = _to_float(usage.get("cost_usd"))
+                if usage_cost is None:
+                    usage_cost = _to_float(usage.get("cost"))
+                if usage_cost is not None:
+                    cost_reported = (cost_reported or 0.0) + usage_cost
+
             choices = body.get("choices") or []
             message = (choices[0] or {}).get("message") if choices else {}
             message = message or {}
@@ -137,7 +204,13 @@ def _openrouter_image_bytes(
         except Exception as exc:  # noqa: BLE001
             last_error = f"model={model} | {exc}"
 
-    return images, last_error
+    usage_meta = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cost_reported_usd": round(cost_reported, 6) if cost_reported is not None else None,
+    }
+    return images, last_error, usage_meta
 
 
 def _is_region_blocked_error(error: str) -> bool:
@@ -374,6 +447,13 @@ def generate_template_banners(
     model_used: str | None = None
     provider_used: str | None = None
     key_source_used = "missing"
+    openrouter_prompt_tokens = 0
+    openrouter_completion_tokens = 0
+    openrouter_total_tokens = 0
+    openrouter_cost_reported_usd: float | None = None
+    openrouter_credits_before: float | None = None
+    openrouter_credits_after: float | None = None
+    cost_source: str | None = None
 
     for variant in variants:
         v_key = str(variant.get("variant_key") or "variant")
@@ -454,8 +534,14 @@ def generate_template_banners(
             should_try_openrouter = False
 
         if should_try_openrouter:
+            if openrouter_credits_before is None:
+                credits_before, _ = _openrouter_remaining_credits(
+                    token=openrouter_token,
+                    timeout=max(10, min(timeout, 30)),
+                )
+                openrouter_credits_before = credits_before
             or_model = _openrouter_model()
-            or_images, or_error = _openrouter_image_bytes(
+            or_images, or_error, or_usage = _openrouter_image_bytes(
                 prompt=prompt,
                 model=or_model,
                 n=safe_n,
@@ -463,6 +549,12 @@ def generate_template_banners(
                 token=openrouter_token,
                 timeout=timeout,
             )
+            openrouter_prompt_tokens += int(or_usage.get("prompt_tokens") or 0)
+            openrouter_completion_tokens += int(or_usage.get("completion_tokens") or 0)
+            openrouter_total_tokens += int(or_usage.get("total_tokens") or 0)
+            usage_cost = _to_float(or_usage.get("cost_reported_usd"))
+            if usage_cost is not None:
+                openrouter_cost_reported_usd = (openrouter_cost_reported_usd or 0.0) + usage_cost
             if or_images:
                 provider_used = "openrouter"
                 model_used = or_model
@@ -500,6 +592,29 @@ def generate_template_banners(
             }
         )
 
+    if provider_used == "openrouter":
+        credits_after, _ = _openrouter_remaining_credits(
+            token=openrouter_token,
+            timeout=max(10, min(timeout, 30)),
+        )
+        openrouter_credits_after = credits_after
+
+    cost_estimated_usd: float | None = None
+    if (
+        provider_used == "openrouter"
+        and openrouter_credits_before is not None
+        and openrouter_credits_after is not None
+    ):
+        cost_estimated_usd = round(
+            max(openrouter_credits_before - openrouter_credits_after, 0.0),
+            6,
+        )
+        cost_source = "credits_delta"
+
+    if cost_estimated_usd is None and openrouter_cost_reported_usd is not None:
+        cost_estimated_usd = round(openrouter_cost_reported_usd, 6)
+        cost_source = "response_usage"
+
     return {
         "ok": len(generated) > 0,
         "provider_requested": provider_requested,
@@ -514,6 +629,29 @@ def generate_template_banners(
         "quality": safe_quality,
         "output_format": safe_output_format,
         "images_per_variant": safe_n,
+        "cost_usd": cost_estimated_usd,
+        "cost_source": cost_source,
+        "cost_estimated_usd": cost_estimated_usd,
+        "cost_reported_usd": (
+            round(openrouter_cost_reported_usd, 6)
+            if openrouter_cost_reported_usd is not None
+            else None
+        ),
+        "openrouter_credits_before": (
+            round(openrouter_credits_before, 6)
+            if openrouter_credits_before is not None
+            else None
+        ),
+        "openrouter_credits_after": (
+            round(openrouter_credits_after, 6)
+            if openrouter_credits_after is not None
+            else None
+        ),
+        "usage": {
+            "prompt_tokens": openrouter_prompt_tokens,
+            "completion_tokens": openrouter_completion_tokens,
+            "total_tokens": openrouter_total_tokens,
+        },
         "generated_count": len(generated),
         "failed_count": len(failed),
         "generated": generated,
