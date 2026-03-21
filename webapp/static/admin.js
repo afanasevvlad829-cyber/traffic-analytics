@@ -119,17 +119,42 @@ function esc(x){
 }
 
 async function api(path, options={}){
-  const res = await fetch(path, {
-    headers: { 'Content-Type':'application/json' },
-    ...options
-  });
-  const text = await res.text();
-  let data = {};
-  try { data = JSON.parse(text); } catch(e) { data = { raw:text }; }
-  if (!res.ok) {
-    throw new Error(data.detail || data.error || text || ('HTTP ' + res.status));
+  const timeoutMs = Number(options.timeoutMs || 0);
+  const controller = new AbortController();
+  const fetchOptions = { ...options };
+  delete fetchOptions.timeoutMs;
+
+  let timeoutId = null;
+  if (timeoutMs > 0) {
+    timeoutId = window.setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
   }
-  return data;
+
+  try {
+    const res = await fetch(path, {
+      headers: { 'Content-Type':'application/json' },
+      ...fetchOptions,
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data = {};
+    try { data = JSON.parse(text); } catch(e) { data = { raw:text }; }
+    if (!res.ok) {
+      throw new Error(data.detail || data.error || text || ('HTTP ' + res.status));
+    }
+    return data;
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      const sec = timeoutMs > 0 ? Math.round(timeoutMs / 1000) : 30;
+      throw new Error(`Превышено время ожидания (${sec}с). Попробуйте ещё раз.`);
+    }
+    throw e;
+  } finally {
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+    }
+  }
 }
 
 function setSection(name){
@@ -1429,6 +1454,7 @@ async function generateScoringBanners(cohortName){
 
   let progress = 7;
   let timer = null;
+  let longWaitTimer = null;
   if (container) {
     renderBannerProgressState(container, safeId, progress, 'Подготовка запроса...');
     timer = window.setInterval(() => {
@@ -1440,13 +1466,21 @@ async function generateScoringBanners(cohortName){
           : 'Сохраняем баннер...';
       updateBannerProgressState(safeId, progress, label);
     }, 650);
+    longWaitTimer = window.setTimeout(() => {
+      updateBannerProgressState(
+        safeId,
+        Math.max(progress, 92),
+        'Запрос выполняется дольше обычного. Обычно это до 1–2 минут...'
+      );
+    }, 15000);
   }
-  BANNER_GENERATION_JOBS[safeId] = { busy: true, timer };
+  BANNER_GENERATION_JOBS[safeId] = { busy: true, timer, longWaitTimer };
 
   const tpl = DASH.scoring_ad_templates || {};
   try {
     const data = await api('/api/scoring/ad-templates/generate-banners', {
       method: 'POST',
+      timeoutMs: 120000,
       body: JSON.stringify({
         cohort_name: name,
         days: Number(tpl.days || 90),
@@ -1461,6 +1495,7 @@ async function generateScoringBanners(cohortName){
     });
 
     if (timer) window.clearInterval(timer);
+    if (longWaitTimer) window.clearTimeout(longWaitTimer);
     delete BANNER_GENERATION_JOBS[safeId];
     setBannerGenerateButtonState(name, false);
 
@@ -1491,9 +1526,11 @@ async function generateScoringBanners(cohortName){
     `;
   } catch (e) {
     if (timer) window.clearInterval(timer);
+    if (longWaitTimer) window.clearTimeout(longWaitTimer);
     delete BANNER_GENERATION_JOBS[safeId];
     setBannerGenerateButtonState(name, false);
     if (container) {
+      renderBannerProgressState(container, safeId, Math.max(progress, 12), 'Остановлено');
       container.innerHTML = `<div class="code">Ошибка генерации баннеров: ${esc(e.message)}</div>`;
     } else {
       alert('Ошибка генерации баннеров: ' + e.message);
