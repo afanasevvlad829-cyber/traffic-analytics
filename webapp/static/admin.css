@@ -178,6 +178,15 @@ a{color:inherit;text-decoration:none}
   line-height:1.6;
 }
 
+.sidebar-meta-link{
+  color:#1d4ed8;
+  text-decoration:underline;
+}
+
+.sidebar-meta-link:hover{
+  color:#1e40af;
+}
+
 .main{
   padding:24px;
   overflow:auto;

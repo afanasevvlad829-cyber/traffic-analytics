@@ -51,6 +51,53 @@ ENV_AI_PATH = BASE_DIR / ".env_ai"
 TEMPLATES_DIR = BASE_DIR / "webapp" / "templates"
 STATIC_DIR = BASE_DIR / "webapp" / "static"
 
+
+def _git_output(args: list[str]) -> str:
+    try:
+        out = subprocess.check_output(
+            ["git", *args],
+            cwd=str(BASE_DIR),
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        return out.strip()
+    except Exception:
+        return ""
+
+
+def _normalize_repo_url(raw: str) -> str:
+    value = (raw or "").strip()
+    if not value:
+        return ""
+    if value.startswith("git@github.com:"):
+        value = "https://github.com/" + value.split("git@github.com:", 1)[1]
+    if value.endswith(".git"):
+        value = value[:-4]
+    return value
+
+
+def _build_git_meta() -> dict[str, Any]:
+    repo_url = _normalize_repo_url(os.getenv("GITHUB_REPO_URL", "") or _git_output(["config", "--get", "remote.origin.url"]))
+    branch = (os.getenv("GIT_BRANCH", "") or _git_output(["rev-parse", "--abbrev-ref", "HEAD"]) or "").strip()
+    commit_full = (os.getenv("GIT_COMMIT", "") or _git_output(["rev-parse", "HEAD"]) or "").strip()
+    commit_short = _git_output(["rev-parse", "--short", "HEAD"]) if commit_full else ""
+    if not commit_short and commit_full:
+        commit_short = commit_full[:8]
+
+    branch_url = f"{repo_url}/tree/{branch}" if repo_url and branch else ""
+    commit_url = f"{repo_url}/commit/{commit_full}" if repo_url and commit_full else ""
+    latest_changes_url = f"{repo_url}/commits/{branch}" if repo_url and branch else (f"{repo_url}/commits" if repo_url else "")
+
+    return {
+        "branch": branch or "unknown",
+        "commit_short": commit_short or "unknown",
+        "commit_full": commit_full or "",
+        "repo_url": repo_url,
+        "branch_url": branch_url,
+        "commit_url": commit_url,
+        "latest_changes_url": latest_changes_url,
+    }
+
 def _load_env_file(path: Path) -> None:
     if not path.exists():
         return
@@ -343,6 +390,11 @@ def api_config():
         "webapp_url": WEBAPP_URL,
         "webapp_path": WEBAPP_PATH,
     }
+
+
+@app.get("/api/system/version")
+def api_system_version():
+    return {"ok": True, **_build_git_meta()}
 
 @app.get("/health")
 def health():

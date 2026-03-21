@@ -192,6 +192,74 @@ function esc(x){
     .replaceAll('>','&gt;');
 }
 
+function safeMetaLink(url){
+  const v = String(url || '').trim();
+  if (!v || !/^https?:\/\//i.test(v)) return '';
+  return v;
+}
+
+async function loadSystemVersionMeta(){
+  try {
+    const data = await api('/api/system/version');
+    const branchRow = document.getElementById('meta-branch-row');
+    const branchValue = document.getElementById('meta-branch-value');
+    const commitRow = document.getElementById('meta-commit-row');
+    const commitValue = document.getElementById('meta-commit-value');
+    const latestRow = document.getElementById('meta-latest-row');
+    const latestLink = document.getElementById('meta-latest-link');
+
+    if (branchValue) {
+      const branchText = data.branch || '-';
+      const branchUrl = safeMetaLink(data.branch_url);
+      if (branchUrl) {
+        branchValue.textContent = '';
+        const a = document.createElement('a');
+        a.className = 'sidebar-meta-link';
+        a.href = branchUrl;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = branchText;
+        branchValue.appendChild(a);
+      } else {
+        branchValue.textContent = branchText;
+      }
+    }
+
+    if (commitValue) {
+      const commitText = data.commit_short || '-';
+      const commitUrl = safeMetaLink(data.commit_url);
+      if (commitUrl) {
+        commitValue.textContent = '';
+        const a = document.createElement('a');
+        a.className = 'sidebar-meta-link';
+        a.href = commitUrl;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = commitText;
+        commitValue.appendChild(a);
+      } else {
+        commitValue.textContent = commitText;
+      }
+    }
+
+    if (latestLink && latestRow) {
+      const latestUrl = safeMetaLink(data.latest_changes_url || data.repo_url);
+      if (latestUrl) {
+        latestLink.href = latestUrl;
+        latestLink.textContent = 'GitHub';
+      } else {
+        latestRow.style.display = 'none';
+      }
+    }
+
+    if (branchRow) branchRow.style.display = '';
+    if (commitRow) commitRow.style.display = '';
+  } catch (e) {
+    const latestRow = document.getElementById('meta-latest-row');
+    if (latestRow) latestRow.style.display = 'none';
+  }
+}
+
 async function api(path, options={}){
   const timeoutMs = Number(options.timeoutMs || 0);
   const controller = new AbortController();
@@ -2770,6 +2838,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   applyInitialRouteState();
   applyStandaloneScoringLayout();
   applyStandaloneAuditsLayout();
+  loadSystemVersionMeta();
   document.getElementById('global-search').addEventListener('input', renderSection);
   document.getElementById('campaign-filter').addEventListener('change', renderSection);
   document.getElementById('status-filter').addEventListener('change', renderSection);
