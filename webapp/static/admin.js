@@ -77,20 +77,27 @@ function applyStandaloneScoringLayout(){
   const actions = document.getElementById('topbar-actions');
   if (CURRENT_SECTION === 'scoring_creatives') {
     if (title) title.textContent = 'Аудитории и активация';
-    if (subtitle) subtitle.textContent = 'Сегменты, выгрузки и активация в Директ по горячим, тёплым и холодным аудиториям';
+    if (subtitle) subtitle.textContent = 'Сегменты, выгрузки и активация в Директ для горячих, тёплых и холодных аудиторий';
   } else if (CURRENT_SECTION === 'scoring_templates') {
     if (title) title.textContent = 'Шаблоны баннеров';
-    if (subtitle) subtitle.textContent = 'Варианты креативов по сегментам с объяснением гипотез и связкой с группами Директ';
+    if (subtitle) subtitle.textContent = 'Варианты креативов по сегментам с гипотезой и привязкой к группам Директ';
   } else {
     if (title) title.textContent = 'Скоринг посетителей';
     if (subtitle) subtitle.textContent = 'Оценка вероятности покупки и рекомендации для маркетинга';
   }
   if (actions) {
+    const sectionLinks = CURRENT_SECTION === 'scoring'
+      ? `<a class="btn ghost" href="/admin/scoring/creatives">Аудитории</a>
+         <a class="btn ghost" href="/admin/scoring/templates">Шаблоны</a>`
+      : CURRENT_SECTION === 'scoring_creatives'
+        ? `<a class="btn ghost" href="/admin/scoring">Скоринг</a>
+           <a class="btn ghost" href="/admin/scoring/templates">Шаблоны</a>`
+        : `<a class="btn ghost" href="/admin/scoring">Скоринг</a>
+           <a class="btn ghost" href="/admin/scoring/creatives">Аудитории</a>`;
+
     actions.innerHTML = `
       <a class="btn ghost" href="/admin">Открыть обзор</a>
-      <a class="btn ghost" href="/admin/scoring">Отчёт скоринга</a>
-      <a class="btn ghost" href="/admin/scoring/creatives">Аудитории и активация</a>
-      <a class="btn ghost" href="/admin/scoring/templates">Шаблоны баннеров</a>
+      ${sectionLinks}
       <button class="btn" onclick="loadScoringDataAndRender()">Обновить данные</button>
       <button class="btn primary" onclick="rebuildScoring()">Пересчитать скоринг</button>
     `;

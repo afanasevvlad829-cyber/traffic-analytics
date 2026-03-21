@@ -206,6 +206,10 @@ a{color:inherit;text-decoration:none}
   flex-wrap:wrap;
 }
 
+.actions .btn{
+  white-space:nowrap;
+}
+
 .btn{
   border:1px solid var(--line);
   background:var(--panel);
@@ -415,6 +419,14 @@ body.scoring-standalone #section-diagnostics{
 
 body.scoring-standalone .topbar{
   margin-bottom:12px;
+}
+
+body.scoring-standalone .topbar .subtitle{
+  max-width:760px;
+}
+
+body.scoring-standalone .topbar .actions{
+  justify-content:flex-end;
 }
 
 body.scoring-standalone .tabulator{
