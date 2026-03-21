@@ -15,12 +15,18 @@ let DASH = {
   scoring_ad_templates: { ready: false, items: [], count: 0, days: 90, min_audience_size: 1, include_small: true, variants: 3, error: '' },
   scoring_activation_plan: { ready: false, cohorts: [], count: 0, eligible_count: 0, min_audience_size: 100 },
   scoring_activation_reaction: { ready: false, items: [], count: 0, totals: { impressions: 0, clicks: 0, cost: 0 } },
-  scoring_meta: { ready: true, count: 0, limit: 100, error: '' }
+  scoring_meta: { ready: true, count: 0, limit: 100, error: '' },
+  crm_load_status: { ready: false, items: [], count: 0, error: '' },
+  crm_users: { ready: false, items: [], count: 0, limit: 100, offset: 0, error: '' },
+  crm_communications: { ready: false, items: [], count: 0, limit: 100, offset: 0, error: '' },
+  crm_meta: { ready: false, selected_customer_id: null, selected_customer_name: '' }
 };
 
 let CURRENT_SECTION = 'overview';
 let IS_SCORING_STANDALONE = false;
 let SCORING_FILTERS = { segment: 'all', source: '', limit: 100 };
+let CRM_FILTERS = { report_date: '', segment: 'all', q: '', limit: 100, offset: 0, communications_limit: 100, communications_offset: 0 };
+let CRM_SELECTED_CUSTOMER_ID = null;
 let SCORING_TABLE = null;
 let SCORING_TIMESERIES_CHART = null;
 let SCORING_DISTRIBUTION_CHART = null;
@@ -49,7 +55,7 @@ function applyInitialRouteState(){
     CURRENT_SECTION = 'scoring';
     IS_SCORING_STANDALONE = true;
   }
-  if (['overview', 'creatives', 'structure', 'negatives', 'forecast', 'scoring', 'scoring_creatives', 'scoring_templates', 'actions', 'diagnostics'].includes(section)) {
+  if (['overview', 'creatives', 'structure', 'negatives', 'forecast', 'scoring', 'scoring_creatives', 'scoring_templates', 'crm', 'actions', 'diagnostics'].includes(section)) {
     CURRENT_SECTION = section;
   }
 
@@ -65,6 +71,23 @@ function applyInitialRouteState(){
 
   if (params.has('limit')) {
     SCORING_FILTERS.limit = normalizeScoringLimit(params.get('limit'));
+  }
+
+  const crmDate = String(params.get('crm_report_date') || '').trim();
+  if (crmDate) {
+    CRM_FILTERS.report_date = crmDate;
+  }
+  const crmSegment = String(params.get('crm_segment') || '').trim();
+  if (crmSegment) {
+    CRM_FILTERS.segment = crmSegment;
+  }
+  const crmQ = String(params.get('crm_q') || '').trim();
+  if (crmQ) {
+    CRM_FILTERS.q = crmQ;
+  }
+  if (params.has('crm_limit')) {
+    const n = Number(params.get('crm_limit'));
+    if ([50, 100, 200].includes(n)) CRM_FILTERS.limit = n;
   }
 }
 
@@ -156,7 +179,12 @@ async function api(path, options={}){
     let data = {};
     try { data = JSON.parse(text); } catch(e) { data = { raw:text }; }
     if (!res.ok) {
-      throw new Error(data.detail || data.error || text || ('HTTP ' + res.status));
+      const detail = data && Object.prototype.hasOwnProperty.call(data, 'detail') ? data.detail : null;
+      const message =
+        typeof detail === 'string' ? detail
+        : detail ? JSON.stringify(detail)
+        : (typeof data.error === 'string' ? data.error : (text || ('HTTP ' + res.status)));
+      throw new Error(message);
     }
     return data;
   } catch (e) {
@@ -188,6 +216,9 @@ function setSection(name){
     s.classList.toggle('active', s.id === 'section-' + name);
   });
   renderSection();
+  if (name === 'crm') {
+    loadCrmDataAndRender();
+  }
 }
 
 const BUTTON_HELP_HINTS = Object.freeze({
@@ -200,6 +231,8 @@ const BUTTON_HELP_HINTS = Object.freeze({
   'Запустить sync в Директ': 'Проверяет и синхронизирует аудитории в Яндекс Директ.',
   'Запустить диагностику': 'Выполняет проверку интеграций, API и ключевых сервисов.',
   'Скопировать отчёт': 'Копирует текст текущего диагностического отчёта.',
+  'Запустить загрузку CRM': 'Запускает импорт XLSX AlfaCRM в staging-таблицы.',
+  'Показать коммуникации': 'Открывает историю коммуникаций по выбранному клиенту.',
 });
 
 function normalizeHelpText(value){
@@ -1847,6 +1880,298 @@ function buildScoringHypotheses(){
   if (panel) panel.style.display = 'block';
 }
 
+function crmSegmentLabel(value){
+  const v = String(value || '').trim();
+  const map = {
+    customers_all: 'Все клиенты',
+    leads_active: 'Лиды активные',
+    leads_archived: 'Лиды архив',
+    clients_active: 'Клиенты активные',
+    clients_archived: 'Клиенты архив',
+  };
+  return map[v] || v || '-';
+}
+
+function crmBoolLabel(value){
+  if (value === null || value === undefined || value === '') return '-';
+  return Number(value) ? 'Да' : 'Нет';
+}
+
+function crmPromptDate(defaultValue=''){
+  const raw = prompt('Введите report_date (YYYY-MM-DD)', defaultValue || new Date().toISOString().slice(0, 10));
+  if (raw === null) return null;
+  const text = String(raw).trim();
+  if (!text) return '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    alert('Неверный формат даты. Используйте YYYY-MM-DD');
+    return null;
+  }
+  return text;
+}
+
+function renderCrm(){
+  const status = DASH.crm_load_status || {};
+  const users = DASH.crm_users || {};
+  const comms = DASH.crm_communications || {};
+  const meta = DASH.crm_meta || {};
+  const latest = (status.items || [])[0] || null;
+  const selectedCustomerText = meta.selected_customer_id
+    ? `${meta.selected_customer_id}${meta.selected_customer_name ? ` · ${meta.selected_customer_name}` : ''}`
+    : '-';
+
+  document.getElementById('section-crm').innerHTML = `
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <div class="panel-title" style="margin-bottom:0">CRM / AlfaCRM</div>
+        <div class="row">
+          <button class="btn" onclick="loadCrmDataAndRender()">Обновить данные</button>
+          <button class="btn primary" onclick="runCrmLoadFile()">Запустить загрузку CRM</button>
+        </div>
+      </div>
+      <div class="small muted" style="margin-top:8px">
+        Последняя загрузка:
+        ${latest ? `файл ${esc(latest.source_file || '-')} · дата ${esc(latest.report_date || '-')} · users ${esc(latest.users_rows || 0)} · communications ${esc(latest.communications_rows || 0)} · loaded_at ${esc(latest.loaded_at || '-')}` : 'нет данных'}
+      </div>
+      ${status.ready === false && status.error ? `<div class="code" style="margin-top:10px">${esc(status.error)}</div>` : ''}
+    </div>
+
+    <div class="panel">
+      <div class="row scoring-filter-row mt-1">
+        <div class="col-md-2 col-sm-6">
+          <input id="crm-report-date-filter" class="form-control" placeholder="YYYY-MM-DD" value="${esc(CRM_FILTERS.report_date || '')}"/>
+        </div>
+        <div class="col-md-3 col-sm-6">
+          <select id="crm-segment-filter" class="form-select">
+            <option value="all">Все сегменты</option>
+            <option value="customers_all" ${CRM_FILTERS.segment === 'customers_all' ? 'selected' : ''}>Все клиенты</option>
+            <option value="leads_active" ${CRM_FILTERS.segment === 'leads_active' ? 'selected' : ''}>Лиды активные</option>
+            <option value="leads_archived" ${CRM_FILTERS.segment === 'leads_archived' ? 'selected' : ''}>Лиды архив</option>
+            <option value="clients_active" ${CRM_FILTERS.segment === 'clients_active' ? 'selected' : ''}>Клиенты активные</option>
+            <option value="clients_archived" ${CRM_FILTERS.segment === 'clients_archived' ? 'selected' : ''}>Клиенты архив</option>
+          </select>
+        </div>
+        <div class="col-md-3 col-sm-12">
+          <input id="crm-q-filter" class="form-control" placeholder="Поиск: id, имя, телефон, email, telegram" value="${esc(CRM_FILTERS.q || '')}"/>
+        </div>
+        <div class="col-md-2 col-sm-6">
+          <select id="crm-limit-filter" class="form-select">
+            <option value="50" ${Number(CRM_FILTERS.limit || 100) === 50 ? 'selected' : ''}>50</option>
+            <option value="100" ${Number(CRM_FILTERS.limit || 100) === 100 ? 'selected' : ''}>100</option>
+            <option value="200" ${Number(CRM_FILTERS.limit || 100) === 200 ? 'selected' : ''}>200</option>
+          </select>
+        </div>
+        <div class="col-md-2 col-sm-6 d-flex gap-2">
+          <button class="btn" onclick="applyCrmFilters()">Применить</button>
+          <button class="btn ghost" onclick="resetCrmFilters()">Сброс</button>
+        </div>
+      </div>
+      <div class="small muted" style="margin-top:10px">
+        Пользователи: ${esc(users.count ?? 0)} · Показано: ${esc((users.items || []).length)} · Выбран: ${esc(selectedCustomerText)}
+      </div>
+      ${users.ready === false && users.error ? `<div class="code" style="margin-top:10px">${esc(users.error)}</div>` : ''}
+    </div>
+
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>customer_id</th>
+            <th>Сегмент</th>
+            <th>Имя</th>
+            <th>Телефон</th>
+            <th>Email</th>
+            <th>Telegram</th>
+            <th>Учится</th>
+            <th>Удалён</th>
+            <th>Дата</th>
+            <th>Действие</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${(users.items || []).length ? (users.items || []).map((r) => {
+            const selected = CRM_SELECTED_CUSTOMER_ID !== null && Number(CRM_SELECTED_CUSTOMER_ID) === Number(r.customer_id);
+            const style = selected ? ' style="background:#eef2ff;"' : '';
+            return `
+            <tr${style}>
+              <td><b>${esc(r.customer_id)}</b></td>
+              <td>${esc(crmSegmentLabel(r.segment))}</td>
+              <td>${esc(r.customer_name || '-')}</td>
+              <td>${esc(r.phone_normalized || '-')}</td>
+              <td>${esc(r.email_normalized || '-')}</td>
+              <td>${esc(r.telegram_username || '-')}</td>
+              <td>${esc(crmBoolLabel(r.is_study))}</td>
+              <td>${esc(crmBoolLabel(r.removed))}</td>
+              <td>${esc(r.report_date || '-')}</td>
+              <td><button class="btn" onclick="selectCrmCustomer(${Number(r.customer_id)}, '${escapeJsSingleQuoted(r.customer_name || '')}')">Показать коммуникации</button></td>
+            </tr>`;
+          }).join('') : `<tr><td colspan="10"><div class="empty">Нет пользователей CRM по выбранным фильтрам</div></td></tr>`}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <div class="panel-title">Коммуникации клиента</div>
+      <div class="small muted">Записей: ${esc(comms.count ?? 0)} · customer_id: ${esc(meta.selected_customer_id ?? '-')}</div>
+      ${comms.ready === false && comms.error ? `<div class="code" style="margin-top:10px">${esc(comms.error)}</div>` : ''}
+      <div class="table-wrap" style="margin-top:10px">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>report_date</th>
+              <th>communication_id</th>
+              <th>type</th>
+              <th>created_at</th>
+              <th>source_file</th>
+              <th>payload</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(comms.items || []).length ? (comms.items || []).map((r) => `
+              <tr>
+                <td>${esc(r.report_date || '-')}</td>
+                <td>${esc(r.communication_id || r.row_key || '-')}</td>
+                <td>${esc(r.communication_type || '-')}</td>
+                <td>${esc(r.created_at || '-')}</td>
+                <td>${esc(r.source_file || '-')}</td>
+                <td><div class="code">${esc(shortText(JSON.stringify(r.payload_json || {}), 220))}</div></td>
+              </tr>
+            `).join('') : `<tr><td colspan="6"><div class="empty">Нет коммуникаций для выбранного клиента</div></td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function loadCrmData(){
+  const usersParams = new URLSearchParams();
+  usersParams.set('limit', String(Number(CRM_FILTERS.limit || 100)));
+  usersParams.set('offset', String(Number(CRM_FILTERS.offset || 0)));
+  if ((CRM_FILTERS.report_date || '').trim()) usersParams.set('report_date', (CRM_FILTERS.report_date || '').trim());
+  if (CRM_FILTERS.segment && CRM_FILTERS.segment !== 'all') usersParams.set('segment', CRM_FILTERS.segment);
+  if ((CRM_FILTERS.q || '').trim()) usersParams.set('q', (CRM_FILTERS.q || '').trim());
+
+  const [statusRes, usersRes] = await Promise.allSettled([
+    api('/api/crm/load-status?limit=20'),
+    api('/api/crm/users?' + usersParams.toString()),
+  ]);
+
+  const status = statusRes.status === 'fulfilled'
+    ? statusRes.value
+    : { ready: false, items: [], count: 0, error: statusRes.reason?.message || 'ошибка API /api/crm/load-status' };
+  const users = usersRes.status === 'fulfilled'
+    ? usersRes.value
+    : { ready: false, items: [], count: 0, limit: Number(CRM_FILTERS.limit || 100), offset: Number(CRM_FILTERS.offset || 0), error: usersRes.reason?.message || 'ошибка API /api/crm/users' };
+
+  DASH.crm_load_status = status || { ready: false, items: [], count: 0 };
+  DASH.crm_users = users || { ready: false, items: [], count: 0 };
+
+  const items = users.items || [];
+  const hasSelected = items.some((x) => Number(x.customer_id) === Number(CRM_SELECTED_CUSTOMER_ID));
+  if (!hasSelected) {
+    CRM_SELECTED_CUSTOMER_ID = items.length ? Number(items[0].customer_id) : null;
+  }
+  const selectedItem = items.find((x) => Number(x.customer_id) === Number(CRM_SELECTED_CUSTOMER_ID)) || null;
+  DASH.crm_meta = {
+    ready: true,
+    selected_customer_id: CRM_SELECTED_CUSTOMER_ID,
+    selected_customer_name: selectedItem?.customer_name || '',
+  };
+
+  if (CRM_SELECTED_CUSTOMER_ID === null) {
+    DASH.crm_communications = { ready: true, items: [], count: 0, limit: Number(CRM_FILTERS.communications_limit || 100), offset: 0 };
+    return;
+  }
+
+  const commParams = new URLSearchParams();
+  commParams.set('customer_id', String(CRM_SELECTED_CUSTOMER_ID));
+  commParams.set('limit', String(Number(CRM_FILTERS.communications_limit || 100)));
+  commParams.set('offset', String(Number(CRM_FILTERS.communications_offset || 0)));
+  if ((CRM_FILTERS.report_date || '').trim()) commParams.set('report_date', (CRM_FILTERS.report_date || '').trim());
+
+  try {
+    const comms = await api('/api/crm/communications?' + commParams.toString());
+    DASH.crm_communications = comms || { ready: true, items: [], count: 0 };
+  } catch (e) {
+    DASH.crm_communications = { ready: false, items: [], count: 0, error: e.message || 'ошибка API /api/crm/communications' };
+  }
+}
+
+async function loadCrmDataAndRender(){
+  try {
+    await loadCrmData();
+    if (CURRENT_SECTION === 'crm') renderCrm();
+  } catch (e) {
+    alert('Ошибка загрузки CRM: ' + e.message);
+  }
+}
+
+async function applyCrmFilters(){
+  CRM_FILTERS.report_date = String(document.getElementById('crm-report-date-filter')?.value || '').trim();
+  CRM_FILTERS.segment = String(document.getElementById('crm-segment-filter')?.value || 'all').trim() || 'all';
+  CRM_FILTERS.q = String(document.getElementById('crm-q-filter')?.value || '').trim();
+  CRM_FILTERS.limit = Number(document.getElementById('crm-limit-filter')?.value || 100);
+  if (![50, 100, 200].includes(Number(CRM_FILTERS.limit))) {
+    CRM_FILTERS.limit = 100;
+  }
+  CRM_FILTERS.offset = 0;
+  await loadCrmDataAndRender();
+}
+
+async function resetCrmFilters(){
+  CRM_FILTERS = { report_date: '', segment: 'all', q: '', limit: 100, offset: 0, communications_limit: 100, communications_offset: 0 };
+  CRM_SELECTED_CUSTOMER_ID = null;
+  await loadCrmDataAndRender();
+}
+
+async function selectCrmCustomer(customerId, customerName=''){
+  const n = Number(customerId);
+  if (!Number.isFinite(n) || n <= 0) return;
+  CRM_SELECTED_CUSTOMER_ID = n;
+  DASH.crm_meta = {
+    ...(DASH.crm_meta || {}),
+    selected_customer_id: n,
+    selected_customer_name: String(customerName || ''),
+  };
+  await loadCrmDataAndRender();
+}
+
+async function runCrmLoadFile(){
+  const xlsxPath = prompt('Укажите путь к XLSX-файлу AlfaCRM', '');
+  if (xlsxPath === null) return;
+  const xlsx = String(xlsxPath || '').trim();
+  if (!xlsx) {
+    alert('Путь к файлу обязателен');
+    return;
+  }
+
+  const reportDate = crmPromptDate(CRM_FILTERS.report_date || new Date().toISOString().slice(0, 10));
+  if (reportDate === null) return;
+  const skipComms = confirm('Пропустить загрузку листа communications?\nOK = пропустить, Cancel = загружать communications.');
+
+  try {
+    const res = await api('/api/crm/load-file', {
+      method: 'POST',
+      timeoutMs: 1800000,
+      body: JSON.stringify({
+        xlsx_path: xlsx,
+        report_date: reportDate || undefined,
+        skip_communications: skipComms,
+      }),
+    });
+    alert(
+      `CRM загрузка завершена.\n` +
+      `source_file: ${res.source_file || '-'}\n` +
+      `users_rows: ${res.customers_rows ?? 0}\n` +
+      `communications_rows: ${res.communications_rows ?? 0}`
+    );
+    if (reportDate) CRM_FILTERS.report_date = reportDate;
+    await loadCrmDataAndRender();
+  } catch (e) {
+    alert('Ошибка загрузки CRM: ' + e.message);
+  }
+}
+
 function renderActions(){
   const rows = applyBaseFilters(DASH.action_log);
   document.getElementById('section-actions').innerHTML = `
@@ -1907,6 +2232,7 @@ function renderSection(){
   if (CURRENT_SECTION === 'scoring') renderScoring();
   if (CURRENT_SECTION === 'scoring_creatives') renderScoringCreatives();
   if (CURRENT_SECTION === 'scoring_templates') renderScoringTemplates();
+  if (CURRENT_SECTION === 'crm') renderCrm();
   if (CURRENT_SECTION === 'actions') renderActions();
   if (CURRENT_SECTION === 'diagnostics') renderDiagnostics();
   decorateUiHelpHints();
@@ -1921,6 +2247,9 @@ async function reloadAll(){
       ...dashboard,
     };
     await loadScoringData();
+    if (CURRENT_SECTION === 'crm') {
+      await loadCrmData();
+    }
     renderSection();
   }catch(e){
     document.getElementById('section-overview').innerHTML = `<div class="panel"><div class="panel-title">Ошибка загрузки</div><div class="code">${esc(e.message)}</div></div>`;

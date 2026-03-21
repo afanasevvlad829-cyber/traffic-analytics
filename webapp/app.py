@@ -1,7 +1,9 @@
 import os
 import json
 import subprocess
+import sys
 from pathlib import Path
+from datetime import date
 from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -101,6 +103,216 @@ def log_decision(entity_type: str, entity_key: str, action: str, status: str, de
         insert into ui_decision_log(entity_type, entity_key, action, status, details, actor)
         values (%s,%s,%s,%s,%s,'webapp')
     """, (entity_type, entity_key, action, status, details))
+
+
+CRM_SCHEMA_EXPECTED: dict[str, dict[str, Any]] = {
+    "stg_alfacrm_customers_daily": {
+        "kind": "BASE TABLE",
+        "columns": [
+            ("report_date", "date"),
+            ("segment", "text"),
+            ("customer_id", "bigint"),
+            ("customer_name", "text"),
+            ("phone_normalized", "text"),
+            ("email_normalized", "text"),
+            ("telegram_username", "text"),
+            ("is_study", "smallint"),
+            ("removed", "smallint"),
+            ("source_file", "text"),
+            ("payload_json", "jsonb"),
+            ("loaded_at", "timestamp"),
+        ],
+    },
+    "stg_alfacrm_communications_daily": {
+        "kind": "BASE TABLE",
+        "columns": [
+            ("report_date", "date"),
+            ("row_key", "text"),
+            ("communication_id", "bigint"),
+            ("customer_id", "bigint"),
+            ("communication_type", "text"),
+            ("created_at", "text"),
+            ("source_file", "text"),
+            ("payload_json", "jsonb"),
+            ("loaded_at", "timestamp"),
+        ],
+    },
+    "etl_alfacrm_file_loads": {
+        "kind": "BASE TABLE",
+        "columns": [
+            ("load_id", "bigint"),
+            ("loaded_at", "timestamp"),
+            ("report_date", "date"),
+            ("source_file", "text"),
+            ("file_hash", "text"),
+            ("customers_rows", "integer"),
+            ("communications_rows", "integer"),
+            ("note", "text"),
+        ],
+    },
+    "vw_alfacrm_customers_latest": {
+        "kind": "VIEW",
+        "columns": [
+            ("report_date", "date"),
+            ("segment", "text"),
+            ("customer_id", "bigint"),
+            ("customer_name", "text"),
+            ("phone_normalized", "text"),
+            ("email_normalized", "text"),
+            ("telegram_username", "text"),
+            ("is_study", "smallint"),
+            ("removed", "smallint"),
+            ("source_file", "text"),
+            ("loaded_at", "timestamp"),
+        ],
+    },
+    "vw_alfacrm_communications_latest": {
+        "kind": "VIEW",
+        "columns": [
+            ("report_date", "date"),
+            ("row_key", "text"),
+            ("communication_id", "bigint"),
+            ("customer_id", "bigint"),
+            ("communication_type", "text"),
+            ("created_at", "text"),
+            ("source_file", "text"),
+            ("loaded_at", "timestamp"),
+            ("payload_json", "jsonb"),
+        ],
+    },
+}
+
+
+def _normalize_db_type(value: str) -> str:
+    v = (value or "").strip().lower()
+    if v.startswith("timestamp"):
+        return "timestamp"
+    if v == "character varying":
+        return "text"
+    return v
+
+
+def _crm_schema_diff() -> dict[str, Any]:
+    objects = list(CRM_SCHEMA_EXPECTED.keys())
+    conn = None
+    try:
+        conn = db()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select table_name, table_type
+                from information_schema.tables
+                where table_schema = 'public' and table_name = any(%s)
+                """,
+                (objects,),
+            )
+            kinds = {r["table_name"]: r["table_type"] for r in cur.fetchall()}
+
+            cur.execute(
+                """
+                select table_name, column_name, data_type
+                from information_schema.columns
+                where table_schema = 'public' and table_name = any(%s)
+                order by table_name, ordinal_position
+                """,
+                (objects,),
+            )
+            columns_raw = cur.fetchall()
+
+        columns_by_object: dict[str, list[tuple[str, str]]] = {}
+        for row in columns_raw:
+            table_name = row["table_name"]
+            columns_by_object.setdefault(table_name, []).append(
+                (row["column_name"], _normalize_db_type(row["data_type"]))
+            )
+
+        missing_objects: list[str] = []
+        kind_mismatches: list[dict[str, str]] = []
+        column_diffs: list[dict[str, Any]] = []
+
+        for obj, spec in CRM_SCHEMA_EXPECTED.items():
+            expected_kind = spec["kind"]
+            actual_kind = kinds.get(obj)
+            if not actual_kind:
+                missing_objects.append(obj)
+                continue
+            if actual_kind != expected_kind:
+                kind_mismatches.append(
+                    {"object": obj, "expected_kind": expected_kind, "actual_kind": actual_kind}
+                )
+
+            expected_cols = spec["columns"]
+            expected_map = {name: _normalize_db_type(dtype) for name, dtype in expected_cols}
+            actual_cols = columns_by_object.get(obj, [])
+            actual_map = {name: _normalize_db_type(dtype) for name, dtype in actual_cols}
+
+            missing_cols = [name for name in expected_map.keys() if name not in actual_map]
+            unexpected_cols = [name for name in actual_map.keys() if name not in expected_map]
+            type_mismatches = [
+                {
+                    "column": name,
+                    "expected_type": expected_map[name],
+                    "actual_type": actual_map.get(name, ""),
+                }
+                for name in expected_map.keys()
+                if name in actual_map and expected_map[name] != actual_map[name]
+            ]
+
+            if missing_cols or unexpected_cols or type_mismatches:
+                column_diffs.append(
+                    {
+                        "object": obj,
+                        "missing_columns": missing_cols,
+                        "unexpected_columns": unexpected_cols,
+                        "type_mismatches": type_mismatches,
+                    }
+                )
+
+        ok = not missing_objects and not kind_mismatches and not column_diffs
+        return {
+            "ok": ok,
+            "missing_objects": missing_objects,
+            "kind_mismatches": kind_mismatches,
+            "column_diffs": column_diffs,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "error": str(exc),
+            "missing_objects": [],
+            "kind_mismatches": [],
+            "column_diffs": [],
+        }
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _ensure_crm_schema_ready() -> None:
+    diff = _crm_schema_diff()
+    if diff.get("ok"):
+        return
+    if diff.get("error"):
+        raise HTTPException(status_code=500, detail={"message": "crm schema check failed", **diff})
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "message": "crm schema mismatch; apply/fix sql/045_alfacrm_crm_ingest.sql before using CRM API",
+            **diff,
+        },
+    )
+
+
+def _parse_report_date_or_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text).isoformat()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"invalid report_date '{value}': {exc}")
 
 
 @app.get("/api/config")
@@ -645,6 +857,251 @@ def api_scoring_visitor(visitor_id: str):
         "scored_at": row.get("scored_at"),
     }
     return row
+
+
+@app.get("/api/crm/load-status")
+def api_crm_load_status(limit: int = 20):
+    _ensure_crm_schema_ready()
+    safe_limit = max(1, min(limit, 200))
+    rows = fetch_all(
+        """
+        select
+            report_date,
+            source_file,
+            customers_rows as users_rows,
+            communications_rows,
+            loaded_at
+        from etl_alfacrm_file_loads
+        order by loaded_at desc
+        limit %s
+        """,
+        (safe_limit,),
+    )
+    return {"ready": True, "items": rows, "count": len(rows), "limit": safe_limit}
+
+
+@app.get("/api/crm/users")
+def api_crm_users(
+    report_date: str | None = None,
+    segment: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    q: str | None = None,
+):
+    _ensure_crm_schema_ready()
+    safe_limit = max(1, min(limit, 1000))
+    safe_offset = max(0, min(offset, 100000))
+    report_date_norm = _parse_report_date_or_none(report_date)
+    segment_norm = (segment or "").strip()
+    if segment_norm.lower() == "all":
+        segment_norm = ""
+    search_q = (q or "").strip()
+
+    source_rel = "stg_alfacrm_customers_daily" if report_date_norm else "vw_alfacrm_customers_latest"
+    where_parts: list[str] = []
+    params: list[Any] = []
+
+    if report_date_norm:
+        where_parts.append("report_date = %s")
+        params.append(report_date_norm)
+    if segment_norm:
+        where_parts.append("segment = %s")
+        params.append(segment_norm)
+    if search_q:
+        where_parts.append(
+            """
+            (
+                customer_name ilike %s
+                or phone_normalized ilike %s
+                or email_normalized ilike %s
+                or telegram_username ilike %s
+                or customer_id::text ilike %s
+            )
+            """
+        )
+        like = f"%{search_q}%"
+        params.extend([like, like, like, like, like])
+
+    where_sql = f"where {' and '.join(where_parts)}" if where_parts else ""
+
+    total = fetch_one(f"select count(*) as cnt from {source_rel} {where_sql}", tuple(params)) or {"cnt": 0}
+    rows = fetch_all(
+        f"""
+        select
+            report_date,
+            segment,
+            customer_id,
+            customer_name,
+            phone_normalized,
+            email_normalized,
+            telegram_username,
+            is_study,
+            removed,
+            source_file,
+            loaded_at
+        from {source_rel}
+        {where_sql}
+        order by report_date desc, loaded_at desc, customer_id desc
+        limit %s offset %s
+        """,
+        tuple(params + [safe_limit, safe_offset]),
+    )
+    return {
+        "ready": True,
+        "items": rows,
+        "count": int(total.get("cnt", 0) or 0),
+        "limit": safe_limit,
+        "offset": safe_offset,
+        "source": source_rel,
+        "report_date": report_date_norm,
+        "segment": segment_norm or None,
+        "q": search_q,
+    }
+
+
+@app.get("/api/crm/communications")
+def api_crm_communications(
+    report_date: str | None = None,
+    customer_id: int | None = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    _ensure_crm_schema_ready()
+    safe_limit = max(1, min(limit, 1000))
+    safe_offset = max(0, min(offset, 100000))
+    report_date_norm = _parse_report_date_or_none(report_date)
+
+    source_rel = "stg_alfacrm_communications_daily" if report_date_norm else "vw_alfacrm_communications_latest"
+    where_parts: list[str] = []
+    params: list[Any] = []
+
+    if report_date_norm:
+        where_parts.append("report_date = %s")
+        params.append(report_date_norm)
+    if customer_id is not None:
+        where_parts.append("customer_id = %s")
+        params.append(customer_id)
+
+    where_sql = f"where {' and '.join(where_parts)}" if where_parts else ""
+
+    total = fetch_one(f"select count(*) as cnt from {source_rel} {where_sql}", tuple(params)) or {"cnt": 0}
+    rows = fetch_all(
+        f"""
+        select
+            report_date,
+            row_key,
+            communication_id,
+            customer_id,
+            communication_type,
+            created_at,
+            source_file,
+            loaded_at,
+            payload_json
+        from {source_rel}
+        {where_sql}
+        order by report_date desc, loaded_at desc, communication_id desc nulls last
+        limit %s offset %s
+        """,
+        tuple(params + [safe_limit, safe_offset]),
+    )
+    return {
+        "ready": True,
+        "items": rows,
+        "count": int(total.get("cnt", 0) or 0),
+        "limit": safe_limit,
+        "offset": safe_offset,
+        "source": source_rel,
+        "report_date": report_date_norm,
+        "customer_id": customer_id,
+    }
+
+
+class CrmLoadFileIn(BaseModel):
+    xlsx_path: str
+    report_date: str | None = None
+    skip_communications: bool = False
+
+
+@app.post("/api/crm/load-file")
+def api_crm_load_file(payload: CrmLoadFileIn):
+    _ensure_crm_schema_ready()
+    xlsx_input = (payload.xlsx_path or "").strip()
+    if not xlsx_input:
+        raise HTTPException(status_code=400, detail="xlsx_path is required")
+
+    xlsx_path = Path(xlsx_input).expanduser()
+    if not xlsx_path.is_absolute():
+        xlsx_path = (BASE_DIR / xlsx_path).resolve()
+    if not xlsx_path.exists():
+        raise HTTPException(status_code=400, detail=f"xlsx file not found: {xlsx_path}")
+
+    report_date_norm = _parse_report_date_or_none(payload.report_date) or date.today().isoformat()
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "src.load_alfacrm_crm_xlsx",
+        "--xlsx",
+        str(xlsx_path),
+        "--report-date",
+        report_date_norm,
+        "--schema-sql",
+        "",
+    ]
+    if payload.skip_communications:
+        cmd.append("--skip-communications")
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+            timeout=1800,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail=f"crm load timeout: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed to start crm loader: {exc}")
+
+    stdout = (proc.stdout or "").strip()
+    stderr = (proc.stderr or "").strip()
+    if proc.returncode != 0:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "crm loader failed",
+                "returncode": proc.returncode,
+                "stderr_tail": stderr[-2000:],
+                "stdout_tail": stdout[-2000:],
+            },
+        )
+
+    parsed: dict[str, Any] = {}
+    for line in reversed(stdout.splitlines()):
+        txt = line.strip()
+        if not txt:
+            continue
+        try:
+            maybe = json.loads(txt)
+            if isinstance(maybe, dict):
+                parsed = maybe
+            break
+        except Exception:
+            continue
+
+    result = {
+        "ok": True,
+        "xlsx_path": str(xlsx_path),
+        "report_date": report_date_norm,
+        "skip_communications": bool(payload.skip_communications),
+    }
+    if parsed:
+        result.update(parsed)
+    elif stdout:
+        result["stdout_tail"] = stdout[-2000:]
+    return result
 
 
 @app.get("/api/diagnostic")
