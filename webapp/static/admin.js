@@ -353,6 +353,99 @@ function normalizeHelpText(value){
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+const NAV_ICON_MAP = Object.freeze({
+  'Обзор': { lib: 'lucide', name: 'house' },
+  'Кампании и объявления': { lib: 'lucide', name: 'megaphone' },
+  'Структура кампаний': { lib: 'lucide', name: 'blocks' },
+  'Минус-слова': { lib: 'lucide', name: 'circle-off' },
+  'Прогноз': { lib: 'lucide', name: 'chart-column' },
+  'Скоринг посетителей': { lib: 'lucide', name: 'target' },
+  'Аудитории и активация': { lib: 'lucide', name: 'users' },
+  'Шаблоны баннеров': { lib: 'lucide', name: 'image' },
+  'CRM / AlfaCRM': { lib: 'tabler', name: 'users-group' },
+  'Аудит OpenRouter': { lib: 'tabler', name: 'brand-openai' },
+  'Журнал действий': { lib: 'lucide', name: 'clipboard-list' },
+  'Диагностика': { lib: 'lucide', name: 'stethoscope' },
+});
+
+const BUTTON_ICON_MAP = Object.freeze({
+  'Компактная панель': { lib: 'lucide', name: 'layout-dashboard' },
+  'Обновить данные': { lib: 'lucide', name: 'refresh-cw' },
+  'Проверка системы': { lib: 'lucide', name: 'stethoscope' },
+  'Открыть обзор': { lib: 'lucide', name: 'house' },
+  'Пересчитать скоринг': { lib: 'lucide', name: 'calculator' },
+  'Сгенерировать гипотезы': { lib: 'lucide', name: 'lightbulb' },
+  'Применить': { lib: 'lucide', name: 'check' },
+  'Обновить': { lib: 'lucide', name: 'refresh-cw' },
+  'Открыть': { lib: 'lucide', name: 'external-link' },
+  'Закрыть': { lib: 'lucide', name: 'x' },
+  'Сгенерировать баннеры': { lib: 'lucide', name: 'image-plus' },
+  'Запустить sync в Директ': { lib: 'tabler', name: 'brand-yandex' },
+  'Запустить диагностику': { lib: 'lucide', name: 'stethoscope' },
+  'Скопировать отчёт': { lib: 'lucide', name: 'copy' },
+  'Синхронизировать из SERM': { lib: 'lucide', name: 'refresh-cw' },
+  'Показать коммуникации': { lib: 'lucide', name: 'message-square' },
+  'Тестовый запуск аудита': { lib: 'lucide', name: 'flask-conical' },
+  'Принять': { lib: 'lucide', name: 'circle-check' },
+  'Нужна доработка': { lib: 'lucide', name: 'hammer' },
+  'Отклонить': { lib: 'lucide', name: 'circle-x' },
+});
+
+function buildIconMarkup(spec){
+  if (!spec || !spec.name) return '';
+  if (spec.lib === 'tabler') {
+    return `<i class="ti ti-${esc(spec.name)}" aria-hidden="true"></i>`;
+  }
+  return `<i data-lucide="${esc(spec.name)}" aria-hidden="true"></i>`;
+}
+
+function renderIconLibraries(){
+  if (window.lucide && typeof window.lucide.createIcons === 'function') {
+    window.lucide.createIcons();
+  }
+}
+
+function decorateNavIcons(){
+  document.querySelectorAll('.nav button').forEach((btn) => {
+    const labelNode = btn.querySelector('.nav-label');
+    const iconNode = btn.querySelector('.nav-icon');
+    if (!labelNode || !iconNode) return;
+    const label = normalizeHelpText(labelNode.textContent);
+    const spec = NAV_ICON_MAP[label];
+    if (!spec) return;
+    const key = `${spec.lib}:${spec.name}`;
+    if (iconNode.dataset.iconKey === key) return;
+    iconNode.dataset.iconKey = key;
+    iconNode.innerHTML = buildIconMarkup(spec);
+  });
+}
+
+function buttonBaseText(btn){
+  const clone = btn.cloneNode(true);
+  clone.querySelectorAll('.btn-help, .btn-icon').forEach((n) => n.remove());
+  return normalizeHelpText(clone.textContent);
+}
+
+function decorateButtonIcons(){
+  document.querySelectorAll('.main .btn').forEach((btn) => {
+    if (btn.dataset.iconLocked === '1') return;
+    const baseText = buttonBaseText(btn);
+    const spec = BUTTON_ICON_MAP[baseText];
+    if (!spec) return;
+    const iconKey = `${spec.lib}:${spec.name}`;
+    if (btn.dataset.iconKey === iconKey) return;
+    const old = btn.querySelector(':scope > .btn-icon');
+    if (old) old.remove();
+
+    const iconWrap = document.createElement('span');
+    iconWrap.className = 'btn-icon';
+    iconWrap.setAttribute('aria-hidden', 'true');
+    iconWrap.innerHTML = buildIconMarkup(spec);
+    btn.prepend(iconWrap);
+    btn.dataset.iconKey = iconKey;
+  });
+}
+
 function decorateUiHelpHints(){
   const nodes = document.querySelectorAll('.main .btn');
   nodes.forEach((btn) => {
@@ -2712,8 +2805,17 @@ function renderSection(){
   if (CURRENT_SECTION === 'audits') renderAudits();
   if (CURRENT_SECTION === 'actions') renderActions();
   if (CURRENT_SECTION === 'diagnostics') renderDiagnostics();
+  decorateNavIcons();
+  decorateButtonIcons();
+  renderIconLibraries();
   decorateUiHelpHints();
+  renderIconLibraries();
   window.requestAnimationFrame(() => decorateUiHelpHints());
+  window.requestAnimationFrame(() => {
+    decorateNavIcons();
+    decorateButtonIcons();
+    renderIconLibraries();
+  });
 }
 
 async function reloadAll(){
@@ -2853,6 +2955,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   applyInitialRouteState();
   applyStandaloneScoringLayout();
   applyStandaloneAuditsLayout();
+  decorateNavIcons();
+  decorateButtonIcons();
+  renderIconLibraries();
   loadSystemVersionMeta();
   document.getElementById('global-search').addEventListener('input', renderSection);
   document.getElementById('campaign-filter').addEventListener('change', renderSection);
