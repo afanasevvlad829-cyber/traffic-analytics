@@ -58,6 +58,18 @@ def main():
     except Exception as e:
         log(f"ERROR in DIRECT: {e}")
 
+    alfacrm_xlsx = os.getenv("ALFACRM_XLSX_FILE", "").strip()
+    if alfacrm_xlsx:
+        try:
+            log(f"Running ALFACRM CRM loader from file: {alfacrm_xlsx}")
+            from src.load_alfacrm_crm_xlsx import run as run_alfacrm_crm_load
+
+            log(
+                f"ALFACRM CRM result: {run_alfacrm_crm_load(xlsx_path=alfacrm_xlsx, report_date=report_date)}"
+            )
+        except Exception as e:
+            log(f"ERROR in ALFACRM CRM loader: {e}")
+
     env = os.environ.copy()
     env["PGPASSWORD"] = env.get("PG_PASSWORD", "StrongPassword123")
 
