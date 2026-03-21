@@ -31,16 +31,30 @@ from src.scoring.service import (
 )
 from src.scoring.feature_sync import debug_unknown_attribution_examples, probe_metrica_source_queries
 from src.scoring.report import send_scoring_report
+from src.sync_alfacrm_serm import sync_alfacrm_from_serm
+from webapp.audit_openrouter import openrouter_health
+from webapp.audit_service import (
+    build_audit_notification,
+    create_audit_run,
+    get_checkpoint_external_channel_status,
+    get_audit_run,
+    list_audit_runs,
+    process_pending_audit_runs,
+    review_audit_run,
+)
 
-BASE_DIR = Path("/home/kv145/traffic-analytics")
+SERVER_BASE_DIR = Path("/home/kv145/traffic-analytics")
+LOCAL_BASE_DIR = Path(__file__).resolve().parents[1]
+BASE_DIR = SERVER_BASE_DIR if SERVER_BASE_DIR.exists() else LOCAL_BASE_DIR
 ENV_PATH = BASE_DIR / ".env"
+ENV_AI_PATH = BASE_DIR / ".env_ai"
 TEMPLATES_DIR = BASE_DIR / "webapp" / "templates"
 STATIC_DIR = BASE_DIR / "webapp" / "static"
 
-def load_env():
-    if not ENV_PATH.exists():
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
         return
-    with open(ENV_PATH, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or "=" not in line:
@@ -49,6 +63,13 @@ def load_env():
                 line = line[len("export "):].strip()
             k, v = line.split("=", 1)
             os.environ[k.strip()] = v.strip().strip('"').strip("'")
+
+
+def load_env():
+    # Priority: canonical .env, then local dev .env_ai fallback.
+    _load_env_file(ENV_PATH)
+    if not ENV_PATH.exists():
+        _load_env_file(ENV_AI_PATH)
 
 load_env()
 
@@ -328,6 +349,137 @@ def health():
     return {"ok": True}
 
 
+@app.get("/api/audits/health/openrouter")
+def api_audits_health_openrouter(timeout_sec: int = 15):
+    safe_timeout = max(3, min(timeout_sec, 120))
+    return openrouter_health(timeout_sec=safe_timeout)
+
+
+class AuditRunCreateIn(BaseModel):
+    project_id: str = "traffic-analytics"
+    branch: str = "main"
+    stage: str = "manual"
+    audit_level: str = "mini"
+    source_report_path: str | None = None
+    changed_modules_json: list[str] | None = None
+
+
+@app.post("/api/audits/runs/create")
+def api_audits_create_run(payload: AuditRunCreateIn):
+    level = (payload.audit_level or "").strip().lower()
+    if level not in {"mini", "full"}:
+        raise HTTPException(status_code=400, detail="audit_level must be mini|full")
+    if not (payload.project_id or "").strip():
+        raise HTTPException(status_code=400, detail="project_id is required")
+    if not (payload.branch or "").strip():
+        raise HTTPException(status_code=400, detail="branch is required")
+    if not (payload.stage or "").strip():
+        raise HTTPException(status_code=400, detail="stage is required")
+
+    try:
+        row = create_audit_run(
+            project_id=payload.project_id.strip(),
+            branch=payload.branch.strip(),
+            stage=payload.stage.strip(),
+            audit_level=level,
+            source_report_path=(payload.source_report_path or "").strip() or None,
+            changed_modules_json=payload.changed_modules_json or [],
+        )
+        return {"ok": True, "item": row}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed to create audit run: {exc}")
+
+
+@app.get("/api/audits/runs")
+def api_audits_runs(
+    limit: int = 50,
+    status: str | None = None,
+    project_id: str | None = None,
+    branch: str | None = None,
+):
+    safe_limit = max(1, min(limit, 500))
+    try:
+        raw_items = list_audit_runs(
+            limit=safe_limit,
+            status=(status or "").strip() or None,
+            project_id=(project_id or "").strip() or None,
+            branch=(branch or "").strip() or None,
+        )
+        items = [{**row, "notification": build_audit_notification(row)} for row in raw_items]
+        return {"ok": True, "items": items, "count": len(items)}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed to list audit runs: {exc}")
+
+
+@app.get("/api/audits/runs/{audit_run_id}")
+def api_audits_run_detail(audit_run_id: int):
+    if audit_run_id <= 0:
+        raise HTTPException(status_code=400, detail="audit_run_id must be positive")
+    row = get_audit_run(audit_run_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="audit_run not found")
+    return {"ok": True, "item": row, "notification": build_audit_notification(row)}
+
+
+class AuditWorkerRunIn(BaseModel):
+    limit: int = 1
+    timeout_sec: int = 45
+    max_retries: int = 3
+
+
+@app.post("/api/audits/worker/openrouter/run")
+def api_audits_worker_openrouter_run(payload: AuditWorkerRunIn | None = None):
+    body = payload or AuditWorkerRunIn()
+    safe_limit = max(1, min(body.limit, 50))
+    safe_timeout = max(5, min(body.timeout_sec, 180))
+    safe_retries = max(1, min(body.max_retries, 6))
+    try:
+        return process_pending_audit_runs(
+            limit=safe_limit,
+            timeout_sec=safe_timeout,
+            max_retries=safe_retries,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"audit worker failed: {exc}")
+
+
+class AuditRunReviewIn(BaseModel):
+    decision: str
+    comment: str | None = None
+
+
+@app.post("/api/audits/runs/{audit_run_id}/review")
+def api_audits_run_review(audit_run_id: int, payload: AuditRunReviewIn):
+    if audit_run_id <= 0:
+        raise HTTPException(status_code=400, detail="audit_run_id must be positive")
+    try:
+        updated = review_audit_run(
+            audit_run_id=audit_run_id,
+            decision=payload.decision,
+            comment=payload.comment,
+            reviewed_by="webapp",
+        )
+        return {"ok": True, "item": updated, "notification": build_audit_notification(updated)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed to review audit run: {exc}")
+
+
+@app.get("/api/audits/checkpoints/{checkpoint_id}/external-status")
+def api_audits_checkpoint_external_status(checkpoint_id: int):
+    if checkpoint_id <= 0:
+        raise HTTPException(status_code=400, detail="checkpoint_id must be positive")
+    try:
+        return get_checkpoint_external_channel_status(checkpoint_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"failed to load checkpoint status: {exc}")
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page():
     html = (TEMPLATES_DIR / "admin.html").read_text(encoding="utf-8")
@@ -353,6 +505,20 @@ def admin_scoring_creatives_page():
 @app.get("/admin/scoring/templates/", response_class=HTMLResponse)
 def admin_scoring_templates_page():
     return admin_page()
+
+
+@app.get("/admin/audits", response_class=HTMLResponse)
+@app.get("/admin/audits/", response_class=HTMLResponse)
+def admin_audits_page():
+    return admin_page()
+
+
+@app.get("/audits/{audit_run_id}", response_class=HTMLResponse)
+def audit_run_page(audit_run_id: int):
+    if audit_run_id <= 0:
+        raise HTTPException(status_code=400, detail="audit_run_id must be positive")
+    html = (TEMPLATES_DIR / "audit_run.html").read_text(encoding="utf-8")
+    return HTMLResponse(html.replace("__AUDIT_RUN_ID__", str(audit_run_id)))
 
 
 @app.get("/webapp", response_class=HTMLResponse)
@@ -870,6 +1036,7 @@ def api_crm_load_status(limit: int = 20):
             source_file,
             customers_rows as users_rows,
             communications_rows,
+            note,
             loaded_at
         from etl_alfacrm_file_loads
         order by loaded_at desc
@@ -937,6 +1104,12 @@ def api_crm_users(
             telegram_username,
             is_study,
             removed,
+            payload_json->>'paid_till' as paid_till,
+            payload_json->>'paid_count' as paid_count,
+            payload_json->>'paid_lesson_count' as paid_lesson_count,
+            payload_json->>'balance' as balance,
+            payload_json->>'study_status_id' as study_status_id,
+            payload_json->>'lead_status_id' as lead_status_id,
             source_file,
             loaded_at
         from {source_rel}
@@ -1022,6 +1195,15 @@ class CrmLoadFileIn(BaseModel):
     skip_communications: bool = False
 
 
+class CrmDirectSyncIn(BaseModel):
+    report_date: str | None = None
+    updates_only: bool = True
+    include_communications: bool = True
+    include_lessons: bool = False
+    include_extra: bool = False
+    timeout_sec: int = 1800
+
+
 @app.post("/api/crm/load-file")
 def api_crm_load_file(payload: CrmLoadFileIn):
     _ensure_crm_schema_ready()
@@ -1102,6 +1284,42 @@ def api_crm_load_file(payload: CrmLoadFileIn):
     elif stdout:
         result["stdout_tail"] = stdout[-2000:]
     return result
+
+
+@app.post("/api/crm/direct-sync")
+def api_crm_direct_sync(payload: CrmDirectSyncIn | None = None):
+    _ensure_crm_schema_ready()
+    body = payload or CrmDirectSyncIn()
+    report_date_norm = _parse_report_date_or_none(body.report_date) or date.today().isoformat()
+    timeout_sec = max(60, min(int(body.timeout_sec or 1800), 7200))
+
+    try:
+        result = sync_alfacrm_from_serm(
+            report_date=report_date_norm,
+            updates_only=bool(body.updates_only),
+            include_communications=bool(body.include_communications),
+            include_lessons=bool(body.include_lessons),
+            include_extra=bool(body.include_extra),
+            timeout_sec=timeout_sec,
+        )
+    except Exception as exc:  # noqa: BLE001
+        message = str(exc)
+        lowered = message.lower()
+        if "not configured" in lowered or "output not found" in lowered:
+            raise HTTPException(status_code=400, detail=message)
+        raise HTTPException(status_code=500, detail=message)
+
+    return {
+        "ok": True,
+        "mode": "direct_sync",
+        "report_date": report_date_norm,
+        "updates_only": bool(body.updates_only),
+        "include_communications": bool(body.include_communications),
+        "include_lessons": bool(body.include_lessons),
+        "include_extra": bool(body.include_extra),
+        "timeout_sec": timeout_sec,
+        **result,
+    }
 
 
 @app.get("/api/diagnostic")

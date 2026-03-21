@@ -19,14 +19,19 @@ let DASH = {
   crm_load_status: { ready: false, items: [], count: 0, error: '' },
   crm_users: { ready: false, items: [], count: 0, limit: 100, offset: 0, error: '' },
   crm_communications: { ready: false, items: [], count: 0, limit: 100, offset: 0, error: '' },
-  crm_meta: { ready: false, selected_customer_id: null, selected_customer_name: '' }
+  crm_meta: { ready: false, selected_customer_id: null, selected_customer_name: '' },
+  audits_health: { ok: false, checked_at: null, latency_ms: null, error_class: '', error: '', retryable: false },
+  audits_runs: { items: [], count: 0, error: '' },
+  audits_meta: { selected_run_id: null, selected_run: null, run_result: null, loading: false }
 };
 
 let CURRENT_SECTION = 'overview';
 let IS_SCORING_STANDALONE = false;
+let IS_AUDITS_STANDALONE = false;
 let SCORING_FILTERS = { segment: 'all', source: '', limit: 100 };
 let CRM_FILTERS = { report_date: '', segment: 'all', q: '', limit: 100, offset: 0, communications_limit: 100, communications_offset: 0 };
 let CRM_SELECTED_CUSTOMER_ID = null;
+let CRM_SYNC_OPTIONS = { updates_only: true, include_communications: true, include_lessons: false, include_extra: false, timeout_sec: 1800 };
 let SCORING_TABLE = null;
 let SCORING_TIMESERIES_CHART = null;
 let SCORING_DISTRIBUTION_CHART = null;
@@ -55,7 +60,11 @@ function applyInitialRouteState(){
     CURRENT_SECTION = 'scoring';
     IS_SCORING_STANDALONE = true;
   }
-  if (['overview', 'creatives', 'structure', 'negatives', 'forecast', 'scoring', 'scoring_creatives', 'scoring_templates', 'crm', 'actions', 'diagnostics'].includes(section)) {
+  if (path === '/admin/audits') {
+    CURRENT_SECTION = 'audits';
+    IS_AUDITS_STANDALONE = true;
+  }
+  if (['overview', 'creatives', 'structure', 'negatives', 'forecast', 'scoring', 'scoring_creatives', 'scoring_templates', 'crm', 'audits', 'actions', 'diagnostics'].includes(section)) {
     CURRENT_SECTION = section;
   }
 
@@ -148,6 +157,33 @@ function applyStandaloneScoringLayout(){
   });
 }
 
+function applyStandaloneAuditsLayout(){
+  if (!IS_AUDITS_STANDALONE) return;
+  document.body.classList.add('scoring-standalone');
+
+  const title = document.getElementById('topbar-title');
+  const subtitle = document.getElementById('topbar-subtitle');
+  const actions = document.getElementById('topbar-actions');
+
+  if (title) title.textContent = 'Аудит OpenRouter';
+  if (subtitle) subtitle.textContent = 'Проверка health канала, запусков аудита и ошибок исполнения';
+
+  if (actions) {
+    actions.innerHTML = `
+      <a class="btn ghost" href="/admin">Открыть обзор</a>
+      <button class="btn" onclick="loadAuditsDataAndRender()">Обновить данные</button>
+      <button class="btn primary" onclick="runAuditSmokeRun()">Тестовый запуск аудита</button>
+    `;
+  }
+
+  document.querySelectorAll('.nav button').forEach(btn => {
+    const section = btn.dataset.section || '';
+    if (section !== 'audits') {
+      btn.setAttribute('onclick', `window.location.href='/admin?section=${encodeURIComponent(section)}'`);
+    }
+  });
+}
+
 function esc(x){
   if (x === null || x === undefined) return '';
   return String(x)
@@ -204,6 +240,9 @@ function setSection(name){
   if (IS_SCORING_STANDALONE && !['scoring', 'scoring_creatives', 'scoring_templates'].includes(name)) {
     return;
   }
+  if (IS_AUDITS_STANDALONE && name !== 'audits') {
+    return;
+  }
   if (CURRENT_SECTION === 'scoring' && name !== 'scoring') {
     destroyScoringVisuals();
   }
@@ -219,6 +258,9 @@ function setSection(name){
   if (name === 'crm') {
     loadCrmDataAndRender();
   }
+  if (name === 'audits') {
+    loadAuditsDataAndRender();
+  }
 }
 
 const BUTTON_HELP_HINTS = Object.freeze({
@@ -231,7 +273,7 @@ const BUTTON_HELP_HINTS = Object.freeze({
   'Запустить sync в Директ': 'Проверяет и синхронизирует аудитории в Яндекс Директ.',
   'Запустить диагностику': 'Выполняет проверку интеграций, API и ключевых сервисов.',
   'Скопировать отчёт': 'Копирует текст текущего диагностического отчёта.',
-  'Запустить загрузку CRM': 'Запускает импорт XLSX AlfaCRM в staging-таблицы.',
+  'Синхронизировать из SERM': 'Запускает прямую синхронизацию из SERM и загрузку клиентов/статусов/коммуникаций.',
   'Показать коммуникации': 'Открывает историю коммуникаций по выбранному клиенту.',
 });
 
@@ -1915,6 +1957,9 @@ function renderCrm(){
   const comms = DASH.crm_communications || {};
   const meta = DASH.crm_meta || {};
   const latest = (status.items || [])[0] || null;
+  const loadHistory = status.items || [];
+  const totalUsersLoaded = loadHistory.reduce((acc, x) => acc + Number(x?.users_rows || 0), 0);
+  const totalCommsLoaded = loadHistory.reduce((acc, x) => acc + Number(x?.communications_rows || 0), 0);
   const selectedCustomerText = meta.selected_customer_id
     ? `${meta.selected_customer_id}${meta.selected_customer_name ? ` · ${meta.selected_customer_name}` : ''}`
     : '-';
@@ -1925,14 +1970,59 @@ function renderCrm(){
         <div class="panel-title" style="margin-bottom:0">CRM / AlfaCRM</div>
         <div class="row">
           <button class="btn" onclick="loadCrmDataAndRender()">Обновить данные</button>
-          <button class="btn primary" onclick="runCrmLoadFile()">Запустить загрузку CRM</button>
+          <button class="btn primary" onclick="runCrmDirectSync()">Синхронизировать из SERM</button>
         </div>
       </div>
       <div class="small muted" style="margin-top:8px">
         Последняя загрузка:
-        ${latest ? `файл ${esc(latest.source_file || '-')} · дата ${esc(latest.report_date || '-')} · users ${esc(latest.users_rows || 0)} · communications ${esc(latest.communications_rows || 0)} · loaded_at ${esc(latest.loaded_at || '-')}` : 'нет данных'}
+        ${latest ? `файл ${esc(latest.source_file || '-')} · дата ${esc(latest.report_date || '-')} · users ${esc(latest.users_rows || 0)} · communications ${esc(latest.communications_rows || 0)} · режим ${esc(latest.note || '-')} · loaded_at ${esc(latest.loaded_at || '-')}` : 'нет данных'}
+      </div>
+      <div class="small muted" style="margin-top:6px">
+        История (до ${esc(status.limit || 20)}): ${esc(loadHistory.length)} записей · users всего: ${esc(totalUsersLoaded)} · communications всего: ${esc(totalCommsLoaded)}
+      </div>
+      <div class="row scoring-filter-row mt-1">
+        <div class="col-md-3 col-sm-6"><label><input type="checkbox" id="crm-sync-updates-only" ${CRM_SYNC_OPTIONS.updates_only ? 'checked' : ''}/> Только обновления</label></div>
+        <div class="col-md-3 col-sm-6"><label><input type="checkbox" id="crm-sync-include-comms" ${CRM_SYNC_OPTIONS.include_communications ? 'checked' : ''}/> Коммуникации</label></div>
+        <div class="col-md-3 col-sm-6"><label><input type="checkbox" id="crm-sync-include-lessons" ${CRM_SYNC_OPTIONS.include_lessons ? 'checked' : ''}/> Длинные разделы (уроки)</label></div>
+        <div class="col-md-3 col-sm-6"><label><input type="checkbox" id="crm-sync-include-extra" ${CRM_SYNC_OPTIONS.include_extra ? 'checked' : ''}/> Прочие длинные разделы</label></div>
+      </div>
+      <div class="row scoring-filter-row mt-1">
+        <div class="col-md-2 col-sm-6">
+          <input id="crm-sync-timeout-sec" class="form-control" type="number" min="60" max="7200" value="${esc(CRM_SYNC_OPTIONS.timeout_sec || 1800)}" />
+        </div>
+        <div class="col-md-10 col-sm-6 small muted">Основной контур: клиенты + статусы оплаты + коммуникации. Длинные разделы по умолчанию отключены.</div>
       </div>
       ${status.ready === false && status.error ? `<div class="code" style="margin-top:10px">${esc(status.error)}</div>` : ''}
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">История загрузок AlfaCRM</div>
+      <div class="table-wrap" style="margin-top:10px">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>loaded_at</th>
+              <th>report_date</th>
+              <th>source_file</th>
+              <th>users_rows</th>
+              <th>communications_rows</th>
+              <th>note</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${loadHistory.length ? loadHistory.map((r) => `
+              <tr>
+                <td>${esc(r.loaded_at || '-')}</td>
+                <td>${esc(r.report_date || '-')}</td>
+                <td>${esc(r.source_file || '-')}</td>
+                <td>${esc(r.users_rows || 0)}</td>
+                <td>${esc(r.communications_rows || 0)}</td>
+                <td>${esc(r.note || '-')}</td>
+              </tr>
+            `).join('') : `<tr><td colspan="6"><div class="empty">История загрузок отсутствует. Нажмите «Синхронизировать из SERM».</div></td></tr>`}
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <div class="panel">
@@ -1983,6 +2073,10 @@ function renderCrm(){
             <th>Telegram</th>
             <th>Учится</th>
             <th>Удалён</th>
+            <th>Оплачено до</th>
+            <th>Оплат/уроки</th>
+            <th>Баланс</th>
+            <th>CRM статус</th>
             <th>Дата</th>
             <th>Действие</th>
           </tr>
@@ -2001,10 +2095,14 @@ function renderCrm(){
               <td>${esc(r.telegram_username || '-')}</td>
               <td>${esc(crmBoolLabel(r.is_study))}</td>
               <td>${esc(crmBoolLabel(r.removed))}</td>
+              <td>${esc(r.paid_till || '-')}</td>
+              <td>${esc(`${r.paid_count || '0'} / ${r.paid_lesson_count || '0'}`)}</td>
+              <td>${esc(r.balance || '-')}</td>
+              <td>${esc(`study:${r.study_status_id || '-'} lead:${r.lead_status_id || '-'}`)}</td>
               <td>${esc(r.report_date || '-')}</td>
               <td><button class="btn" onclick="selectCrmCustomer(${Number(r.customer_id)}, '${escapeJsSingleQuoted(r.customer_name || '')}')">Показать коммуникации</button></td>
             </tr>`;
-          }).join('') : `<tr><td colspan="10"><div class="empty">Нет пользователей CRM по выбранным фильтрам</div></td></tr>`}
+          }).join('') : `<tr><td colspan="14"><div class="empty">Нет пользователей CRM по выбранным фильтрам</div></td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2052,7 +2150,7 @@ async function loadCrmData(){
   if ((CRM_FILTERS.q || '').trim()) usersParams.set('q', (CRM_FILTERS.q || '').trim());
 
   const [statusRes, usersRes] = await Promise.allSettled([
-    api('/api/crm/load-status?limit=20'),
+    api('/api/crm/load-status?limit=100'),
     api('/api/crm/users?' + usersParams.toString()),
   ]);
 
@@ -2136,6 +2234,47 @@ async function selectCrmCustomer(customerId, customerName=''){
   await loadCrmDataAndRender();
 }
 
+function applyCrmSyncOptionsFromForm(){
+  CRM_SYNC_OPTIONS.updates_only = !!document.getElementById('crm-sync-updates-only')?.checked;
+  CRM_SYNC_OPTIONS.include_communications = !!document.getElementById('crm-sync-include-comms')?.checked;
+  CRM_SYNC_OPTIONS.include_lessons = !!document.getElementById('crm-sync-include-lessons')?.checked;
+  CRM_SYNC_OPTIONS.include_extra = !!document.getElementById('crm-sync-include-extra')?.checked;
+  const timeoutValue = Number(document.getElementById('crm-sync-timeout-sec')?.value || CRM_SYNC_OPTIONS.timeout_sec || 1800);
+  CRM_SYNC_OPTIONS.timeout_sec = Math.min(7200, Math.max(60, Number.isFinite(timeoutValue) ? timeoutValue : 1800));
+}
+
+async function runCrmDirectSync(){
+  applyCrmSyncOptionsFromForm();
+  const reportDate = crmPromptDate(CRM_FILTERS.report_date || new Date().toISOString().slice(0, 10));
+  if (reportDate === null) return;
+  try {
+    const res = await api('/api/crm/direct-sync', {
+      method: 'POST',
+      timeoutMs: Number(CRM_SYNC_OPTIONS.timeout_sec || 1800) * 1000 + 30000,
+      body: JSON.stringify({
+        report_date: reportDate || undefined,
+        updates_only: !!CRM_SYNC_OPTIONS.updates_only,
+        include_communications: !!CRM_SYNC_OPTIONS.include_communications,
+        include_lessons: !!CRM_SYNC_OPTIONS.include_lessons,
+        include_extra: !!CRM_SYNC_OPTIONS.include_extra,
+        timeout_sec: Number(CRM_SYNC_OPTIONS.timeout_sec || 1800),
+      }),
+    });
+    const load = res.load_result || {};
+    alert(
+      `SERM синхронизация завершена.\n` +
+      `source: ${res.source || '-'}\n` +
+      `source_file: ${load.source_file || '-'}\n` +
+      `users_rows: ${load.customers_rows ?? 0}\n` +
+      `communications_rows: ${load.communications_rows ?? 0}`
+    );
+    if (reportDate) CRM_FILTERS.report_date = reportDate;
+    await loadCrmDataAndRender();
+  } catch (e) {
+    alert('Ошибка синхронизации SERM: ' + e.message);
+  }
+}
+
 async function runCrmLoadFile(){
   const xlsxPath = prompt('Укажите путь к XLSX-файлу AlfaCRM', '');
   if (xlsxPath === null) return;
@@ -2169,6 +2308,260 @@ async function runCrmLoadFile(){
     await loadCrmDataAndRender();
   } catch (e) {
     alert('Ошибка загрузки CRM: ' + e.message);
+  }
+}
+
+function auditSourceBadge(source, cacheHit){
+  const s = String(source || '').toLowerCase();
+  if (cacheHit || s === 'cache') return '<span class="badge">кэш</span>';
+  if (s === 'openrouter') return '<span class="badge good">OpenRouter</span>';
+  return `<span class="badge">${esc(s || '-')}</span>`;
+}
+
+function auditStatusText(status){
+  const s = String(status || '').toLowerCase();
+  if (s === 'pending') return 'Ожидает';
+  if (s === 'running') return 'Выполняется';
+  if (s === 'reviewed') return 'Проверен';
+  if (s === 'requires_fix') return 'Нужна доработка';
+  if (s === 'approved') return 'Одобрен';
+  if (s === 'failed') return 'Ошибка';
+  return status || '-';
+}
+
+function auditReviewText(status){
+  const s = String(status || '').toLowerCase();
+  if (s === 'approved') return 'Принято';
+  if (s === 'rejected') return 'Отклонено';
+  if (s === 'needs_fix') return 'Нужна доработка';
+  return '-';
+}
+
+function renderAuditRunDetail(run){
+  if (!run) {
+    return '<div class="empty">Выберите run для деталей</div>';
+  }
+  const normalized = run.response_json || {};
+  const raw = run.raw_response_json || {};
+  const notification = run.notification || {};
+  const runId = Number(run.id || 0);
+  return `
+    <div class="panel">
+      <div class="panel-title">Run #${esc(run.id)}</div>
+      <div class="small muted">Создан: ${esc(run.created_at || '-')} · Обновлён: ${esc(run.updated_at || '-')}</div>
+      <div class="row mt-2">
+        <span class="badge">Статус: ${esc(auditStatusText(run.status))}</span>
+        ${auditSourceBadge(run.source, run.cache_hit)}
+        <span class="badge">Кэш: ${run.cache_hit ? 'да' : 'нет'}</span>
+        <span class="badge">Попыток: ${esc(run.attempt_count ?? 0)}</span>
+        <span class="badge">HTTP: ${esc(run.transport_status_code ?? '-')}</span>
+        <span class="badge">External: ${esc(run.external_status || '-')}</span>
+        <span class="badge">Повторяемая: ${run.retryable ? 'да' : 'нет'}</span>
+        <span class="badge">Проверка: ${esc(auditReviewText(run.review_status))}</span>
+      </div>
+      ${runId > 0 ? `<div class="small muted mt-2">Страница: <a href="/audits/${runId}" target="_blank">/audits/${runId}</a></div>` : ''}
+      <div class="small muted mt-2">cache_key: ${esc(run.cache_key || '-')}</div>
+      <div class="small muted mt-1">Тип ошибки: ${esc(run.last_error_type || '-')}</div>
+      <div class="code mt-2">${esc(shortText(run.last_error_text || run.last_error || '-', 800))}</div>
+      ${notification.summary ? `<div class="small muted mt-2">Кратко: ${esc(notification.summary)}</div>` : ''}
+      <div class="row mt-2">
+        <button class="btn primary" onclick="reviewAuditRun(${runId}, 'approve')">Принять</button>
+        <button class="btn" onclick="reviewAuditRun(${runId}, 'needs_fix')">Нужна доработка</button>
+        <button class="btn" onclick="reviewAuditRun(${runId}, 'reject')">Отклонить</button>
+      </div>
+      <div class="row mt-2">
+        <div class="col-md-6 col-sm-12">
+          <div class="panel-title" style="font-size:14px">Нормализованный ответ (preview)</div>
+          <div class="code">${esc(shortText(JSON.stringify(normalized, null, 2), 2500))}</div>
+        </div>
+        <div class="col-md-6 col-sm-12">
+          <div class="panel-title" style="font-size:14px">Raw ответ (preview)</div>
+          <div class="code">${esc(shortText(JSON.stringify(raw, null, 2), 2500))}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function reviewAuditRun(runId, decision){
+  if (!runId || runId <= 0) {
+    alert('Сначала выберите run');
+    return;
+  }
+  const comment = window.prompt('Комментарий (опционально):', '') || '';
+  try {
+    await api('/api/audits/runs/' + encodeURIComponent(runId) + '/review', {
+      method: 'POST',
+      body: JSON.stringify({ decision, comment }),
+    });
+    await loadAuditsDataAndRender();
+    await viewAuditRunDetail(runId);
+  } catch (e) {
+    alert('Ошибка подтверждения: ' + e.message);
+  }
+}
+
+function renderAudits(){
+  const health = DASH.audits_health || {};
+  const runsWrap = DASH.audits_runs || {};
+  const rows = runsWrap.items || [];
+  const selectedId = Number(DASH.audits_meta?.selected_run_id || 0);
+  const selected = rows.find((x) => Number(x.id) === selectedId) || DASH.audits_meta?.selected_run || null;
+  const runResult = DASH.audits_meta?.run_result || null;
+
+  document.getElementById('section-audits').innerHTML = `
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <div class="panel-title" style="margin-bottom:0">Аудит OpenRouter</div>
+        <div class="row">
+          <button class="btn" onclick="loadAuditsDataAndRender()">Обновить данные</button>
+          <button class="btn primary" onclick="runAuditSmokeRun()">Тестовый запуск аудита</button>
+        </div>
+      </div>
+      <div class="small muted" style="margin-top:8px">
+        Канал: ${health.ok ? '<span class="badge good">доступен</span>' : '<span class="badge bad">ошибка</span>'}
+        · checked_at ${esc(health.checked_at || '-')}
+        · latency ${esc(health.latency_ms ?? '-')} ms
+        · error_class ${esc(health.error_class || '-')}
+      </div>
+      ${health.error ? `<div class="code" style="margin-top:8px">${esc(health.error)}</div>` : ''}
+      ${runResult ? `<div class="code" style="margin-top:8px">${esc(shortText(JSON.stringify(runResult), 1200))}</div>` : ''}
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Последние запуски аудита</div>
+      <div class="small muted">Всего: ${esc(runsWrap.count ?? rows.length)} · Показано: ${esc(rows.length)}</div>
+      ${runsWrap.error ? `<div class="code" style="margin-top:8px">${esc(runsWrap.error)}</div>` : ''}
+      <div class="table-wrap" style="margin-top:10px">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>created_at</th>
+              <th>ID</th>
+              <th>Статус</th>
+              <th>Источник</th>
+              <th>Кэш</th>
+              <th>Попытки</th>
+              <th>Повторяемая</th>
+              <th>Ошибка</th>
+              <th>Детали</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.length ? rows.map((r) => {
+              const isSelected = Number(r.id) === selectedId;
+              return `
+                <tr${isSelected ? ' style="background:#eef2ff;"' : ''}>
+                  <td>${esc(r.created_at || '-')}</td>
+                  <td><b>${esc(r.id)}</b></td>
+                  <td>${statusBadge(auditStatusText(r.status))}</td>
+                  <td>${auditSourceBadge(r.source, r.cache_hit)}</td>
+                  <td>${r.cache_hit ? 'да' : 'нет'}</td>
+                  <td>${esc(r.attempt_count ?? 0)}</td>
+                  <td>${r.retryable ? 'да' : 'нет'}</td>
+                  <td><div class="code">${esc(shortText(r.last_error || '-', 120))}</div></td>
+                  <td><button class="btn" onclick="viewAuditRunDetail(${Number(r.id)})">Открыть</button></td>
+                </tr>
+              `;
+            }).join('') : `<tr><td colspan="9"><div class="empty">Пока нет audit runs</div></td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Детали запуска</div>
+      ${renderAuditRunDetail(selected)}
+    </div>
+  `;
+}
+
+async function loadAuditsData(){
+  const [healthRes, runsRes] = await Promise.allSettled([
+    api('/api/audits/health/openrouter?timeout_sec=20'),
+    api('/api/audits/runs?limit=50'),
+  ]);
+
+  DASH.audits_health = healthRes.status === 'fulfilled'
+    ? (healthRes.value || { ok: false })
+    : { ok: false, error_class: 'request', error: healthRes.reason?.message || 'health request failed' };
+
+  DASH.audits_runs = runsRes.status === 'fulfilled'
+    ? (runsRes.value || { items: [], count: 0 })
+    : { items: [], count: 0, error: runsRes.reason?.message || 'runs request failed' };
+}
+
+async function loadAuditsDataAndRender(){
+  try {
+    await loadAuditsData();
+    if (CURRENT_SECTION === 'audits') {
+      renderAudits();
+    }
+  } catch (e) {
+    alert('Ошибка загрузки аудитов: ' + e.message);
+  }
+}
+
+async function viewAuditRunDetail(runId){
+  try {
+    const data = await api('/api/audits/runs/' + encodeURIComponent(runId));
+    DASH.audits_meta = {
+      ...(DASH.audits_meta || {}),
+      selected_run_id: Number(runId),
+      selected_run: { ...(data.item || {}), notification: data.notification || null },
+    };
+    if (CURRENT_SECTION === 'audits') renderAudits();
+  } catch (e) {
+    alert('Ошибка загрузки деталей run: ' + e.message);
+  }
+}
+
+async function runAuditSmokeRun(){
+  const stage = `ui_smoke_${Date.now()}`;
+  const branch = `ui/${window.location.hostname || 'local'}`;
+  DASH.audits_meta = { ...(DASH.audits_meta || {}), run_result: null, loading: true };
+  if (CURRENT_SECTION === 'audits') renderAudits();
+
+  try {
+    const created = await api('/api/audits/runs/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        project_id: 'traffic-analytics',
+        branch,
+        stage,
+        audit_level: 'mini',
+        changed_modules_json: ['webapp/app.py', 'webapp/static/admin.js'],
+      }),
+    });
+    const createdId = Number(created?.item?.id || 0);
+    const worker = await api('/api/audits/worker/openrouter/run', {
+      method: 'POST',
+      timeoutMs: 120000,
+      body: JSON.stringify({ limit: 10, timeout_sec: 60, max_retries: 2 }),
+    });
+
+    let detail = null;
+    if (createdId > 0) {
+      const detailRes = await api('/api/audits/runs/' + createdId);
+      detail = { ...(detailRes.item || {}), notification: detailRes.notification || null };
+    }
+
+    DASH.audits_meta = {
+      ...(DASH.audits_meta || {}),
+      selected_run_id: createdId || null,
+      selected_run: detail,
+      run_result: { created_id: createdId || null, worker },
+      loading: false,
+    };
+    await loadAuditsDataAndRender();
+  } catch (e) {
+    DASH.audits_meta = {
+      ...(DASH.audits_meta || {}),
+      run_result: { error: e.message || 'smoke run failed' },
+      loading: false,
+    };
+    if (CURRENT_SECTION === 'audits') renderAudits();
+    alert('Ошибка тестового запуска аудита: ' + e.message);
   }
 }
 
@@ -2219,7 +2612,7 @@ function renderDiagnostics(){
 }
 
 function renderSection(){
-  if (!IS_SCORING_STANDALONE) {
+  if (!IS_SCORING_STANDALONE && !IS_AUDITS_STANDALONE) {
     renderSummary();
     renderCampaignFilter();
   }
@@ -2233,6 +2626,7 @@ function renderSection(){
   if (CURRENT_SECTION === 'scoring_creatives') renderScoringCreatives();
   if (CURRENT_SECTION === 'scoring_templates') renderScoringTemplates();
   if (CURRENT_SECTION === 'crm') renderCrm();
+  if (CURRENT_SECTION === 'audits') renderAudits();
   if (CURRENT_SECTION === 'actions') renderActions();
   if (CURRENT_SECTION === 'diagnostics') renderDiagnostics();
   decorateUiHelpHints();
@@ -2375,6 +2769,7 @@ async function copyDiagnostic(){
 document.addEventListener('DOMContentLoaded', async () => {
   applyInitialRouteState();
   applyStandaloneScoringLayout();
+  applyStandaloneAuditsLayout();
   document.getElementById('global-search').addEventListener('input', renderSection);
   document.getElementById('campaign-filter').addEventListener('change', renderSection);
   document.getElementById('status-filter').addEventListener('change', renderSection);
@@ -2389,6 +2784,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   if (IS_SCORING_STANDALONE) {
     await loadScoringData();
+    renderSection();
+  } else if (IS_AUDITS_STANDALONE) {
+    await loadAuditsData();
     renderSection();
   } else {
     await reloadAll();

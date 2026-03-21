@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Отчёт аудита</title>
+  <link rel="stylesheet" href="/static/admin.css?v=20260321c"/>
+  <style>
+    body { margin: 0; padding: 20px; background: #f3f5f9; font-family: "Comfortaa", sans-serif; color: #111827; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+    .small { font-size: 12px; color: #6b7280; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .panel { background: #fff; border: 1px solid #dbe1eb; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+    .mono { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; font-size: 12px; max-height: 320px; overflow: auto; }
+    .badge { display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid #d1d5db; padding: 2px 8px; font-size: 12px; background: #fff; }
+    .badge.good { color: #166534; border-color: #86efac; background: #f0fdf4; }
+    .badge.warn { color: #92400e; border-color: #fcd34d; background: #fffbeb; }
+    .badge.bad { color: #991b1b; border-color: #fca5a5; background: #fef2f2; }
+    .help { display: inline-flex; justify-content: center; align-items: center; width: 16px; height: 16px; border: 1px solid #cbd5e1; border-radius: 999px; font-size: 11px; color: #64748b; cursor: help; }
+    .info-block { margin-top: 10px; }
+    .info-block b { display: block; margin-bottom: 4px; }
+    .list { margin: 0; padding-left: 18px; }
+    .list li { margin-bottom: 6px; }
+    .score-card { display: inline-flex; flex-direction: column; gap: 2px; background: #f8fafc; border: 1px solid #dbeafe; border-radius: 10px; padding: 10px 12px; }
+    .score-main { font-size: 28px; line-height: 1; font-weight: 700; color: #1e3a8a; }
+    .score-sub { font-size: 12px; color: #475569; }
+    .issue { border: 1px solid #dbe1eb; border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; background: #fff; }
+    .issue.bad { border-color: #fca5a5; background: #fef2f2; }
+    .issue.warn { border-color: #fde68a; background: #fffbeb; }
+    .issue.good { border-color: #bbf7d0; background: #f0fdf4; }
+    .issue-title { font-weight: 700; margin-bottom: 4px; }
+    .modules { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .module-chip { display: inline-flex; border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 999px; font-size: 12px; padding: 3px 9px; }
+    .explain { margin-top: 8px; background: #f8fafc; border: 1px dashed #d1d5db; border-radius: 8px; padding: 8px; }
+    .review-actions { margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <h1 style="margin:0; font-size:28px;">Аудит #<span id="run-id">__AUDIT_RUN_ID__</span></h1>
+        <div class="small">Проверка результата внешнего аудита изменений</div>
+      </div>
+      <div class="row">
+        <a class="btn ghost" href="/admin/audits">К списку аудитов</a>
+        <button class="btn" onclick="reloadRun()">Обновить</button>
+      </div>
+    </div>
+
+    <div class="panel" id="notification-box"></div>
+    <div class="panel" id="main-info"></div>
+    <div class="panel" id="result-info"></div>
+    <div class="panel" id="tech-info"></div>
+
+    <div class="panel">
+      <details>
+        <summary><b>Нормализованный ответ (служебно)</b></summary>
+        <div id="normalized-json" class="mono" style="margin-top:8px;"></div>
+      </details>
+      <details style="margin-top:10px;">
+        <summary><b>Raw ответ провайдера (служебно)</b></summary>
+        <div id="raw-json" class="mono" style="margin-top:8px;"></div>
+      </details>
+    </div>
+  </div>
+
+  <script>
+    const RUN_ID = Number("__AUDIT_RUN_ID__");
+
+    function esc(x){
+      if (x === null || x === undefined) return '';
+      return String(x).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+    }
+
+    function api(path, options={}){
+      return fetch(path, {
+        headers: { 'Content-Type':'application/json' },
+        ...options,
+      }).then(async (res) => {
+        const text = await res.text();
+        let data = {};
+        try { data = JSON.parse(text); } catch(e) { data = { raw:text }; }
+        if (!res.ok) {
+          throw new Error(typeof data.detail === 'string' ? data.detail : text || `HTTP ${res.status}`);
+        }
+        return data;
+      });
+    }
+
+    function mapStatus(value){
+      const v = String(value || '').toLowerCase();
+      const m = {
+        pending: 'Ожидает',
+        running: 'Выполняется',
+        reviewed: 'Проверен',
+        requires_fix: 'Нужна доработка',
+        approved: 'Одобрен',
+        failed: 'Ошибка',
+      };
+      return m[v] || (value || '-');
+    }
+
+    function mapSource(value){
+      const v = String(value || '').toLowerCase();
+      if (v === 'openrouter') return 'OpenRouter (живой вызов)';
+      if (v === 'cache') return 'Кэш';
+      return value || '-';
+    }
+
+    function mapDecision(value){
+      const v = String(value || '').toLowerCase();
+      const m = {
+        skip: 'Пропустить аудит',
+        use_cache: 'Взять из кэша',
+        partial: 'Частичный аудит',
+        full: 'Полный аудит',
+        force_fresh: 'Полный свежий аудит',
+      };
+      return m[v] || (value || '-');
+    }
+
+    function mapReview(value){
+      const v = String(value || '').toLowerCase();
+      const m = {
+        approved: 'Принято',
+        rejected: 'Отклонено',
+        needs_fix: 'Нужна доработка',
+      };
+      return m[v] || '-';
+    }
+
+    function mapSeverity(value){
+      const v = String(value || '').toLowerCase();
+      const m = {
+        critical: 'Критично',
+        high: 'Высокий',
+        medium: 'Средний',
+        low: 'Низкий',
+      };
+      return m[v] || (value || '-');
+    }
+
+    function issueClass(value){
+      const v = String(value || '').toLowerCase();
+      if (v === 'critical' || v === 'high') return 'bad';
+      if (v === 'medium') return 'warn';
+      return 'good';
+    }
+
+    function verdictRu(value){
+      const v = String(value || '').trim();
+      const l = v.toLowerCase();
+      if (!v) return '-';
+      if (l.includes('needs improvement')) return 'Требуется доработка';
+      if (l.includes('approved')) return 'Одобрено';
+      if (l.includes('pass')) return 'Пройдено';
+      return v;
+    }
+
+    function statusBadge(status){
+      const s = String(status || '').toLowerCase();
+      const label = mapStatus(status);
+      if (s === 'approved' || s === 'reviewed') return `<span class="badge good">${esc(label)}</span>`;
+      if (s === 'failed') return `<span class="badge bad">${esc(label)}</span>`;
+      if (s === 'requires_fix') return `<span class="badge warn">${esc(label)}</span>`;
+      return `<span class="badge">${esc(label)}</span>`;
+    }
+
+    function notificationStatusBadge(status){
+      const s = String(status || '').toLowerCase();
+      const label = s === 'success' ? 'Успешно' : s === 'warning' ? 'Предупреждение' : s === 'failed' ? 'Ошибка' : (status || '-');
+      if (s === 'success') return `<span class="badge good">${esc(label)}</span>`;
+      if (s === 'failed') return `<span class="badge bad">${esc(label)}</span>`;
+      if (s === 'warning') return `<span class="badge warn">${esc(label)}</span>`;
+      return `<span class="badge">${esc(label)}</span>`;
+    }
+
+    function toScore10(scoreRaw){
+      const n = Number(scoreRaw);
+      if (!Number.isFinite(n)) return null;
+      return Math.max(0, Math.min(10, n * 10));
+    }
+
+    function scoreLevel(score10){
+      if (score10 === null) return { label: 'Нет данных', cls: '' };
+      if (score10 >= 8) return { label: 'Сильный результат', cls: 'good' };
+      if (score10 >= 6) return { label: 'Нормально, но есть риски', cls: 'warn' };
+      return { label: 'Низко, нужны исправления', cls: 'bad' };
+    }
+
+    function renderIssues(topIssues){
+      if (!topIssues.length) return `<div class="small">Ключевые проблемы не указаны.</div>`;
+      return topIssues.map((i) => {
+        const severity = mapSeverity(i.severity);
+        return `
+          <div class="issue ${issueClass(i.severity)}">
+            <div class="issue-title">${esc(i.title || '-')}</div>
+            <div class="small"><b>Приоритет:</b> ${esc(severity)} · <b>Категория:</b> ${esc(i.category || '-')}</div>
+            <div style="margin-top:4px;">${esc(i.description || '-')}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function render(data){
+      const item = data.item || {};
+      const n = data.notification || {};
+      const topIssues = Array.isArray(n.top_issues) ? n.top_issues : [];
+      const changedModules = Array.isArray(item.changed_modules_json) ? item.changed_modules_json : [];
+      const score10 = toScore10(item.overall_score);
+      const sLevel = scoreLevel(score10);
+
+      document.getElementById('notification-box').innerHTML = `
+        <div class="panel-title">Что отправлено на аудит <span class="help" title="Контекст, который система отдала во внешний аудит: проект, этап, ветка, изменённые зоны и параметры запуска.">i</span></div>
+        <div class="row" style="margin-top:8px;">
+          <span class="badge">Проект: ${esc(n.project_id || item.project_id || '-')}</span>
+          <span class="badge">Run: ${esc(n.audit_run_id || item.id || '-')}</span>
+          <span class="badge">Ветка: ${esc(item.branch || '-')}</span>
+          <span class="badge">Этап: ${esc(item.stage || '-')}</span>
+          <span class="badge">Решение policy: ${esc(mapDecision(n.decision))}</span>
+          <span class="badge">Источник: ${esc(mapSource(n.source || item.source))}</span>
+          <span class="badge">Кэш: ${n.cache_hit || item.cache_hit ? 'да' : 'нет'}</span>
+          <span class="badge">Попыток: ${esc(n.attempt_count ?? item.attempt_count ?? 0)}</span>
+          ${notificationStatusBadge(n.status)}
+        </div>
+        <div class="small" style="margin-top:8px;">Кратко: ${esc(n.summary || '-')}</div>
+        <div class="small" style="margin-top:6px;">Ссылка: <a href="${esc(n.url || '#')}">${esc(n.url || '-')}</a></div>
+        <div class="info-block">
+          <b>Изменённые модули</b>
+          ${changedModules.length ? `<div class="modules">${changedModules.map(x => `<span class="module-chip">${esc(x)}</span>`).join('')}</div>` : `<div class="small">Нет данных по модулям.</div>`}
+        </div>
+      `;
+
+      document.getElementById('main-info').innerHTML = `
+        <div class="panel-title">Общая информация</div>
+        <div class="row" style="margin-top:8px;">
+          <span class="badge">ID аудита: ${esc(item.id || '-')}</span>
+          <span class="badge">Проект: ${esc(item.project_id || '-')}</span>
+          <span class="badge">Создан: ${esc(item.created_at || '-')}</span>
+          ${statusBadge(item.status)}
+          <span class="badge">Источник: ${esc(mapSource(item.source))}</span>
+          <span class="badge">cache_hit: ${item.cache_hit ? 'да' : 'нет'}</span>
+          <span class="badge">Проверка: ${esc(mapReview(item.review_status))}</span>
+        </div>
+      `;
+
+      document.getElementById('result-info').innerHTML = `
+        <div class="panel-title">Результат аудита <span class="help" title="Score в системе хранится в шкале 0..1. Здесь он показан в более понятной шкале 0..10.">i</span></div>
+        <div class="row" style="margin-top:8px; justify-content:space-between; align-items:flex-start;">
+          <div class="score-card">
+            <div class="score-main">${score10 === null ? '-' : esc(score10.toFixed(1))}/10</div>
+            <div class="score-sub">Исходная шкала: ${esc(item.overall_score ?? '-')} (0..1)</div>
+          </div>
+          <div class="row">
+            <span class="badge ${sLevel.cls}">${esc(sLevel.label)}</span>
+            <span class="badge">Вердикт: ${esc(verdictRu(item.verdict))}</span>
+            <span class="badge">Статус проверки: ${esc(mapReview(item.review_status))}</span>
+          </div>
+        </div>
+
+        <div class="info-block">
+          <b>Ключевые проблемы</b>
+          ${renderIssues(topIssues)}
+        </div>
+
+        <div class="review-actions">
+          <div class="panel-title" style="font-size:16px; margin-bottom:4px;">Пользовательское подтверждение</div>
+          <div class="explain small">
+            <b>Что означают кнопки:</b><br/>
+            • <b>Принять</b> — результат аудита принимается как корректный.<br/>
+            • <b>Нужна доработка</b> — результат принят частично, нужны исправления.<br/>
+            • <b>Отклонить</b> — результат аудита не принимается.
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <button class="btn primary" onclick="submitReview('approve')">Принять</button>
+            <button class="btn" onclick="submitReview('needs_fix')">Нужна доработка</button>
+            <button class="btn" onclick="submitReview('reject')">Отклонить</button>
+          </div>
+          <textarea id="review-comment" class="input" style="margin-top:10px; width:100%; min-height:72px;" placeholder="Комментарий по решению (опционально)"></textarea>
+          <div id="review-result" class="small" style="margin-top:8px;"></div>
+        </div>
+      `;
+
+      document.getElementById('tech-info').innerHTML = `
+        <div class="panel-title">Техническая информация <span class="help" title="Служебные метрики выполнения запроса к провайдеру: попытки, HTTP-код, статус канала, ошибки.">i</span></div>
+        <div class="row" style="margin-top:8px;">
+          <span class="badge">Попыток: ${esc(item.attempt_count ?? 0)}</span>
+          <span class="badge">HTTP код: ${esc(item.transport_status_code ?? '-')}</span>
+          <span class="badge">External status: ${esc(item.external_status || '-')}</span>
+          <span class="badge">Повторяемая ошибка: ${item.retryable ? 'да' : 'нет'}</span>
+          <span class="badge">Тип ошибки: ${esc(item.last_error_type || '-')}</span>
+        </div>
+        <div class="mono" style="margin-top:8px;">${esc(item.last_error_text || item.last_error || '-')}</div>
+      `;
+
+      document.getElementById('normalized-json').textContent = JSON.stringify(item.response_json || {}, null, 2);
+      document.getElementById('raw-json').textContent = JSON.stringify(item.raw_response_json || {}, null, 2);
+    }
+
+    async function reloadRun(){
+      const data = await api('/api/audits/runs/' + encodeURIComponent(RUN_ID));
+      render(data);
+    }
+
+    async function submitReview(decision){
+      const commentNode = document.getElementById('review-comment');
+      const target = document.getElementById('review-result');
+      if (!target) return;
+      const comment = (commentNode && commentNode.value) ? commentNode.value : '';
+      target.textContent = 'Сохраняем решение...';
+      try {
+        const data = await api('/api/audits/runs/' + encodeURIComponent(RUN_ID) + '/review', {
+          method: 'POST',
+          body: JSON.stringify({ decision, comment }),
+        });
+        render(data);
+        const after = document.getElementById('review-result');
+        if (after) after.textContent = `Сохранено: ${mapReview(data?.item?.review_status || '-')}`;
+      } catch (e) {
+        target.textContent = `Ошибка: ${e.message}`;
+      }
+    }
+
+    reloadRun().catch((e) => {
+      document.getElementById('main-info').innerHTML = `<div class="mono">${esc(e.message)}</div>`;
+    });
+  </script>
+</body>
+</html>

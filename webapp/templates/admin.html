@@ -61,6 +61,10 @@
 </button>
 
 <div class="nav-group-title">Система</div>
+<button data-section="audits" onclick="setSection('audits')" title="Внешний аудит изменений через OpenRouter: health, запуски, статусы и ошибки">
+<span class="nav-item-content"><span class="nav-icon">🧪</span><span class="nav-label">Аудит OpenRouter</span><span class="nav-help" data-help="Проверка канала внешнего аудита: состояние OpenRouter, последние запуски и ошибки.">i</span></span>
+</button>
+
 <button data-section="actions" onclick="setSection('actions')" title="История действий системы и операторов">
 <span class="nav-item-content"><span class="nav-icon">🧾</span><span class="nav-label">Журнал действий</span><span class="nav-help" data-help="Хронология изменений: что система рекомендовала и что было применено.">i</span></span>
 </button>
@@ -149,6 +153,7 @@ placeholder="Поиск по кампаниям, объявлениям, гру�
 <section id="section-scoring_creatives" class="section"></section>
 <section id="section-scoring_templates" class="section"></section>
 <section id="section-crm" class="section"></section>
+<section id="section-audits" class="section"></section>
 <section id="section-actions" class="section"></section>
 <section id="section-diagnostics" class="section"></section>
 
