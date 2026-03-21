@@ -219,6 +219,12 @@ function safeDomId(value){
     .replace(/^-|-$/g, '') || 'item';
 }
 
+function escapeJsSingleQuoted(value){
+  return String(value || '')
+    .replaceAll('\\', '\\\\')
+    .replaceAll("'", "\\'");
+}
+
 function factorLabel(key){
   const labels = {
     visited_price_page: 'страница цен',
@@ -1173,7 +1179,7 @@ function renderScoringTemplates(){
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
             <div class="small muted">Тег: <span class="badge">${esc(row.direct_tag || '-')}</span></div>
             <div id="banner-inline-status-${safeDomId(row.cohort_name || '')}" class="small muted" style="min-width:220px;text-align:right"></div>
-            <button id="banner-generate-btn-${safeDomId(row.cohort_name || '')}" class="btn primary" onclick="generateScoringBanners(${JSON.stringify(row.cohort_name || '')})">
+            <button id="banner-generate-btn-${safeDomId(row.cohort_name || '')}" class="btn primary" onclick="generateScoringBanners('${escapeJsSingleQuoted(row.cohort_name || '')}')">
               Сгенерировать баннеры
             </button>
           </div>
