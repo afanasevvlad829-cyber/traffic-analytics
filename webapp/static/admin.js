@@ -191,19 +191,128 @@ function setSection(name){
 }
 
 const BUTTON_HELP_HINTS = Object.freeze({
-  'Обновить данные': 'Повторно загружает данные текущей страницы с сервера.',
-  'Пересчитать скоринг': 'Пересобирает признаки и заново считает score/сегменты посетителей.',
+  'Открыть дашборд': 'Открывает основной дашборд в новой вкладке.',
+  'Открыть обзор': 'Переход к сводке KPI и проблемных зон.',
+  'Скоринг': 'Переход к оценке вероятности покупки по посетителям.',
+  'Аудитории': 'Переход к сегментам и активации в рекламных каналах.',
+  'Шаблоны': 'Переход к шаблонам креативов и баннеров.',
+  'Обновить данные': 'Шаг 1: подтянуть свежие данные перед принятием решений.',
+  'Пересчитать скоринг': 'Шаг 2: пересчитать скор и сегменты на актуальных данных.',
+  'Сгенерировать гипотезы': 'Шаг 3: получить приоритетные гипотезы для роста конверсии.',
   'Применить': 'Применяет выбранные фильтры к данным на экране.',
-  'Обновить': 'Перезагружает блок с актуальными данными.',
+  'Сброс': 'Сбрасывает фильтры к значениям по умолчанию.',
+  'Обновить': 'Перезагружает текущий блок и его показатели.',
   'Открыть': 'Открывает детальную карточку записи.',
-  'Сгенерировать баннеры': 'Запускает генерацию баннеров для выбранной аудитории.',
-  'Запустить sync в Директ': 'Проверяет и синхронизирует аудитории в Яндекс Директ.',
-  'Запустить диагностику': 'Выполняет проверку интеграций, API и ключевых сервисов.',
-  'Скопировать отчёт': 'Копирует текст текущего диагностического отчёта.',
+  'Сгенерировать баннеры': 'Создаёт баннеры под выбранный сегмент аудитории.',
+  'Подготовить сущности в Директ (проверка)': 'Проверяет, какие сущности и аудитории будут созданы.',
+  'Создать сущности в Директ': 'Создаёт кампании/группы/аудитории в Директ.',
+  'Проверка синхронизации': 'Пробный запуск синхронизации без изменений в рекламном кабинете.',
+  'Синхронизировать в Директ': 'Публикует аудитории и обновляет связки в Директ.',
+  'Запустить диагностику': 'Проверяет API, БД и системные интеграции.',
+  'Скопировать отчёт': 'Копирует диагностический отчёт в буфер обмена.',
+  'Одобрить A': 'Отправляет вариант A в очередь на применение.',
+  'A/B A': 'Отправляет вариант A в очередь A/B теста.',
+  'A/B B': 'Отправляет вариант B в очередь A/B теста.',
+  'A/B C': 'Отправляет вариант C в очередь A/B теста.',
+  'Вариант A/B A': 'Отправляет вариант A в очередь A/B теста.',
+  'Вариант A/B B': 'Отправляет вариант B в очередь A/B теста.',
+  'Вариант A/B C': 'Отправляет вариант C в очередь A/B теста.',
+  'Игнорировать': 'Помечает задачу как неактуальную без применения.',
+  'Отложить': 'Откладывает задачу на следующий цикл.',
+  'Разделить группу': 'Применяет рекомендацию по разделению группы объявлений.',
+  'Скопировать для ИИ': 'Копирует контекст блока для анализа в ИИ.',
+  'Применить безопасные минус-слова': 'Применяет только безопасный список минус-слов по кампании.',
+  'Закрыть': 'Закрывает текущую карточку или окно.',
+});
+
+const MENU_HELP_HINTS = Object.freeze({
+  overview: 'Шаг 1: сверьте KPI и отклонения. Затем переходите к объявлениям и структуре.',
+  creatives: 'Шаг 2: обработайте слабые объявления. Сначала одобрите сильные A/B варианты.',
+  structure: 'Шаг 3: исправьте структуру групп и запросов перед масштабированием бюджета.',
+  negatives: 'Шаг 4: примените безопасные минус-слова для очистки трафика.',
+  forecast: 'Шаг 5: проверьте расхождение прогноза и факта перед изменением ставок.',
+  scoring: 'Шаг 1 в скоринге: выделите горячий сегмент и ключевые причины покупки.',
+  scoring_creatives: 'Шаг 2 в скоринге: сформируйте аудитории и план активации.',
+  scoring_templates: 'Шаг 3 в скоринге: подготовьте креативы под каждый сегмент.',
+  actions: 'Контроль выполнения: отслеживайте, что уже применено и где ошибки.',
+  diagnostics: 'Технический контроль: проверяйте интеграции при любых аномалиях.',
+});
+
+const BLOCK_HELP_HINTS = Object.freeze({
+  'Слабые объявления': 'Приоритет: сначала объявления с низким CTR и высоким CPC.',
+  'Структурные проблемы': 'Исправляйте группы с пересечением интента и нерелевантными запросами.',
+  'Проверка прогноза': 'Сравните прогноз и факт, чтобы скорректировать модель и ставки.',
+  'Безопасные минус-слова': 'Список слов, которые можно применять без риска потери целевых показов.',
+  'Заблокированные минус-слова': 'Потенциально рискованные слова, требуют ручной проверки.',
+  'Журнал действий по минус-словам': 'История применения минус-слов и статусы выполнения.',
+  'Качество атрибуции': 'Чем ниже доля неизвестных и прямых источников, тем надёжнее решения по каналам.',
+  'Типы посетителей за 90 дней': 'Динамика сегментов: ищите рост горячих и снижение холодных.',
+  'Распределение сегментов': 'Быстрый контроль долей горячих/тёплых/холодных.',
+  'Аудитория Метрики (агрегатно)': 'Портрет аудитории: демография, источники, устройства.',
+  'Посетители в скоринге': 'Операционный список лидов для дожима и прогрева.',
+  'Гипотезы по сегментам': 'Список приоритетных следующих действий с акцентом на рост конверсии.',
+  'План креативов по сегментам': 'Готовые сообщения под сегменты для быстрого тестирования.',
+  'Аудитории и активация в Директ': 'Мост между скорингом и рекламной активацией.',
+  'Реакция в Директ по тегам скоринга': 'Контроль CTR/CPC/расхода после активации сегментов.',
+  'Шаблоны баннеров по сегментам': 'Шаблоны креативов под сегменты для масштабирования.',
+  'Системная диагностика': 'Точка проверки API, БД и сервисов перед разбором ошибок.',
+  'Карточка посетителя': 'Подробное объяснение скоринга и рекомендуемого действия по посетителю.',
+  'Топ источников (скоринг)': 'Основные каналы, которые приводят посетителей в скоринг.',
+  'Топ устройств': 'Структура трафика по устройствам для адаптации креативов.',
+  'Мобильные ОС (90 дней)': 'Распределение iOS/Android для сегментации объявлений.',
+  'Открытые креативы': 'Задачи по объявлениям, требующие решения в текущем цикле.',
+  'Структурные задачи': 'Сколько задач по архитектуре кампаний требуют обработки.',
+  'Прогнозные проверки': 'Количество кейсов, где нужно сравнить прогноз и факт.',
+  'Одобрено': 'Число действий, уже применённых в системе.',
+  'Ожидают решения': 'Очередь задач с потенциальным влиянием на результат.',
+  'Кратко по сегменту': 'Почему выбран сегмент и какую гипотезу тестируем.',
+  'Связка с Директ': 'Техническая привязка сегмента к сущностям рекламного кабинета.',
+  'Сгенерированные баннеры': 'Результат генерации креативов под выбранный сегмент.',
+  'Посетитель': 'Карточка клиента: скоринг, причины и следующее действие.',
 });
 
 function normalizeHelpText(value){
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeBlockTitle(value){
+  return normalizeHelpText(String(value || '').replace(/^Блок \d+:\s*/i, ''));
+}
+
+function resolveBlockHint(label){
+  const normalized = normalizeBlockTitle(label);
+  if (BLOCK_HELP_HINTS[normalized]) return BLOCK_HELP_HINTS[normalized];
+  if (normalized.startsWith('Посетитель')) return BLOCK_HELP_HINTS['Посетитель'];
+  if (!normalized) return '';
+  return `Блок «${normalized}». Используйте этот раздел для принятия приоритетных бизнес-решений.`;
+}
+
+function ensureHelpBadge(node, hint, className='block-help'){
+  if (!node || !hint) return;
+  const existing = node.querySelector(`:scope > .${className}`);
+  if (existing) {
+    existing.setAttribute('data-help', hint);
+    return;
+  }
+  const badge = document.createElement('span');
+  badge.className = className;
+  badge.textContent = 'i';
+  badge.setAttribute('data-help', hint);
+  badge.setAttribute('aria-hidden', 'true');
+  node.appendChild(badge);
+}
+
+function decorateMenuHelpHints(){
+  document.querySelectorAll('.nav button').forEach((btn) => {
+    const section = String(btn.dataset.section || '');
+    const hint = MENU_HELP_HINTS[section];
+    if (!hint) return;
+    btn.setAttribute('title', hint);
+    const bubble = btn.querySelector('.nav-help');
+    if (bubble) {
+      bubble.setAttribute('data-help', hint);
+    }
+  });
 }
 
 function decorateUiHelpHints(){
@@ -231,19 +340,49 @@ function decorateUiHelpHints(){
   });
 }
 
+function decorateBlockHelpHints(){
+  const nodes = document.querySelectorAll('.main .panel-title, .main .metric-label');
+  nodes.forEach((node) => {
+    if (!node) return;
+    const rawText = normalizeHelpText(node.dataset.baseLabel || node.textContent);
+    if (!rawText) return;
+    if (!node.dataset.baseLabel) node.dataset.baseLabel = rawText;
+    const hint = resolveBlockHint(rawText);
+    if (!hint) return;
+    ensureHelpBadge(node, hint, 'block-help');
+  });
+}
+
 function confidenceBadge(value){
   const v = (value || 'LOW').toUpperCase();
-  if (v === 'HIGH') return '<span class="badge good">HIGH</span>';
-  if (v === 'MEDIUM') return '<span class="badge warn">MEDIUM</span>';
-  return '<span class="badge">LOW</span>';
+  if (v === 'HIGH') return '<span class="badge good">Высокая</span>';
+  if (v === 'MEDIUM') return '<span class="badge warn">Средняя</span>';
+  return '<span class="badge">Низкая</span>';
 }
 
 function statusBadge(value){
   const v = (value || '').toUpperCase();
-  if (['DONE','EXECUTED','APPROVED'].includes(v)) return `<span class="badge good">${esc(v)}</span>`;
-  if (['FAILED','ERROR','NOT_OK'].includes(v)) return `<span class="badge bad">${esc(v)}</span>`;
-  if (['PENDING','SNOOZED','IGNORED'].includes(v)) return `<span class="badge warn">${esc(v)}</span>`;
-  return `<span class="badge">${esc(v || '-')}</span>`;
+  const label = statusLabel(v);
+  if (['DONE','EXECUTED','APPROVED'].includes(v)) return `<span class="badge good">${esc(label)}</span>`;
+  if (['FAILED','ERROR','NOT_OK'].includes(v)) return `<span class="badge bad">${esc(label)}</span>`;
+  if (['PENDING','SNOOZED','IGNORED'].includes(v)) return `<span class="badge warn">${esc(label)}</span>`;
+  return `<span class="badge">${esc(label || '-')}</span>`;
+}
+
+function statusLabel(value){
+  const v = String(value || '').toUpperCase();
+  const labels = {
+    PENDING: 'Ожидает',
+    DONE: 'Выполнено',
+    APPROVED: 'Одобрено',
+    EXECUTED: 'Исполнено',
+    IGNORED: 'Игнорировано',
+    SNOOZED: 'Отложено',
+    FAILED: 'Ошибка',
+    ERROR: 'Ошибка',
+    NOT_OK: 'Ошибка',
+  };
+  return labels[v] || (v ? String(value) : '-');
 }
 
 function segmentBadge(segment){
@@ -632,7 +771,7 @@ function renderOverview(){
               <button class="btn primary" onclick="queueAB(${r.ad_id}, 'A')">Одобрить A</button>
               <button class="btn" onclick="ignoreCreative(${r.ad_id})">Игнорировать</button>
               <button class="btn warn" onclick="snoozeCreative(${r.ad_id})">Отложить</button>
-              <button class="btn ghost" onclick="copyContext('CR-${r.ad_id}')">Скопировать для AI</button>
+              <button class="btn ghost" onclick="copyContext('CR-${r.ad_id}')">Скопировать для ИИ</button>
             </div>
           </div>
         `).join('') : `<div class="empty">Нет слабых объявлений</div>`}
@@ -648,7 +787,7 @@ function renderOverview(){
               <div class="row" style="margin-top:10px">
                 ${statusBadge(r.action_status)}
                 <button class="btn primary" onclick="structureAction(${JSON.stringify(r.campaign_name)}, ${r.ad_group_id}, 'APPLY_SPLIT')">Разделить группу</button>
-                <button class="btn ghost" onclick="copyContext('ST-${r.ad_group_id}')">Скопировать для AI</button>
+                <button class="btn ghost" onclick="copyContext('ST-${r.ad_group_id}')">Скопировать для ИИ</button>
               </div>
             </div>
           `).join('') : `<div class="empty">Нет структурных проблем</div>`}
@@ -659,7 +798,7 @@ function renderOverview(){
           ${forecast.length ? forecast.map(r => `
             <div class="panel" style="padding:12px;margin-bottom:10px">
               <div><b>${esc(r.campaign_name)}</b></div>
-              <div class="small muted">ID объявления: ${esc(r.ad_id)} · ${esc(r.forecast_status || '-')}</div>
+              <div class="small muted">ID объявления: ${esc(r.ad_id)} · ${esc(statusLabel(r.forecast_status || '-'))}</div>
               <div class="row" style="margin-top:10px">
                 <span class="badge">Прогноз CTR ${esc(r.predicted_ctr_pct || '-')}</span>
                 <span class="badge">Факт CTR ${esc(r.actual_ctr_pct || '-')}</span>
@@ -731,16 +870,16 @@ ${esc(r.ai_body_3 || '')}</div>
               </td>
               <td>
                 <div class="row">
-                  <button class="btn primary" onclick="queueAB(${r.ad_id}, 'A')">A/B A</button>
-                  <button class="btn primary" onclick="queueAB(${r.ad_id}, 'B')">A/B B</button>
-                  <button class="btn primary" onclick="queueAB(${r.ad_id}, 'C')">A/B C</button>
+                  <button class="btn primary" onclick="queueAB(${r.ad_id}, 'A')">Вариант A/B A</button>
+                  <button class="btn primary" onclick="queueAB(${r.ad_id}, 'B')">Вариант A/B B</button>
+                  <button class="btn primary" onclick="queueAB(${r.ad_id}, 'C')">Вариант A/B C</button>
                   <button class="btn" onclick="ignoreCreative(${r.ad_id})">Игнорировать</button>
                   <button class="btn warn" onclick="snoozeCreative(${r.ad_id})">Отложить</button>
-                  <button class="btn ghost" onclick="copyContext('CR-${r.ad_id}')">Скопировать для AI</button>
+                  <button class="btn ghost" onclick="copyContext('CR-${r.ad_id}')">Скопировать для ИИ</button>
                 </div>
               </td>
             </tr>
-          `).join('') : `<tr><td colspan="6"><div class="empty">Нет creative tasks</div></td></tr>`}
+          `).join('') : `<tr><td colspan="6"><div class="empty">Нет задач по объявлениям</div></td></tr>`}
         </tbody>
       </table>
     </div>
@@ -755,10 +894,10 @@ function renderStructure(){
         <thead>
           <tr>
             <th>Кампания</th>
-            <th>Group</th>
-            <th>Queries</th>
-            <th>Recommendation</th>
-            <th>Action</th>
+            <th>Группа</th>
+            <th>Запросы</th>
+            <th>Рекомендация</th>
+            <th>Действие</th>
           </tr>
         </thead>
         <tbody>
@@ -771,14 +910,14 @@ function renderStructure(){
               <td>
                 <div class="row">
                   ${statusBadge(r.action_status)}
-                  <button class="btn primary" onclick="structureAction(${JSON.stringify(r.campaign_name)}, ${r.ad_group_id}, 'APPLY_SPLIT')">Apply split</button>
+                  <button class="btn primary" onclick="structureAction(${JSON.stringify(r.campaign_name)}, ${r.ad_group_id}, 'APPLY_SPLIT')">Разделить группу</button>
                   <button class="btn" onclick="structureAction(${JSON.stringify(r.campaign_name)}, ${r.ad_group_id}, 'IGNORE')">Игнорировать</button>
                   <button class="btn warn" onclick="structureAction(${JSON.stringify(r.campaign_name)}, ${r.ad_group_id}, 'SNOOZE')">Отложить</button>
-                  <button class="btn ghost" onclick="copyContext('ST-${r.ad_group_id}')">Скопировать для AI</button>
+                  <button class="btn ghost" onclick="copyContext('ST-${r.ad_group_id}')">Скопировать для ИИ</button>
                 </div>
               </td>
             </tr>
-          `).join('') : `<tr><td colspan="5"><div class="empty">Нет structure items</div></td></tr>`}
+          `).join('') : `<tr><td colspan="5"><div class="empty">Нет структурных задач</div></td></tr>`}
         </tbody>
       </table>
     </div>
@@ -792,42 +931,42 @@ function renderNegatives(){
   document.getElementById('section-negatives').innerHTML = `
     <div class="grid-2">
       <div class="panel">
-        <div class="panel-title">Safe negatives</div>
+        <div class="panel-title">Безопасные минус-слова</div>
         ${safe.length ? safe.map(r => `
           <div class="panel" style="padding:12px;margin-bottom:10px">
             <div><b>${esc(r.campaign_name)}</b></div>
-            <div class="small muted">Keywords: ${esc(r.keywords_count)}</div>
+            <div class="small muted">Ключевых слов: ${esc(r.keywords_count)}</div>
             <div class="code" style="margin-top:10px">${esc(r.words || '')}</div>
             <div class="row" style="margin-top:10px">
-              <button class="btn primary" onclick="applySafeNegatives(${JSON.stringify(r.campaign_name)})">Apply</button>
-              <button class="btn ghost" onclick="copyNegativeContext(${JSON.stringify(r.campaign_name)}, ${JSON.stringify(r.words || '')}, ${JSON.stringify(r.keywords_count || 0)})">Скопировать для AI</button>
+              <button class="btn primary" onclick="applySafeNegatives(${JSON.stringify(r.campaign_name)})">Применить безопасные минус-слова</button>
+              <button class="btn ghost" onclick="copyNegativeContext(${JSON.stringify(r.campaign_name)}, ${JSON.stringify(r.words || '')}, ${JSON.stringify(r.keywords_count || 0)})">Скопировать для ИИ</button>
             </div>
           </div>
-        `).join('') : `<div class="empty">Нет safe negatives</div>`}
+        `).join('') : `<div class="empty">Нет безопасных минус-слов</div>`}
       </div>
       <div class="panel">
-        <div class="panel-title">Blocked negatives</div>
+        <div class="panel-title">Заблокированные минус-слова</div>
         ${blocked.length ? blocked.map(r => `
           <div class="panel" style="padding:12px;margin-bottom:10px">
             <div><b>${esc(r.campaign_name)}</b></div>
-            <div class="small muted">Keywords: ${esc(r.keywords_count)}</div>
+            <div class="small muted">Ключевых слов: ${esc(r.keywords_count)}</div>
             <div class="code" style="margin-top:10px">${esc(r.words || '')}</div>
           </div>
-        `).join('') : `<div class="empty">Нет blocked negatives</div>`}
+        `).join('') : `<div class="empty">Нет заблокированных минус-слов</div>`}
       </div>
     </div>
 
     <div class="panel">
-      <div class="panel-title">Negative actions log</div>
+      <div class="panel-title">Журнал действий по минус-словам</div>
       <div class="table-wrap">
         <table class="table">
           <thead>
             <tr>
-              <th>Time</th>
-              <th>Campaign</th>
-              <th>Action</th>
-              <th>Status</th>
-              <th>Words</th>
+              <th>Время</th>
+              <th>Кампания</th>
+              <th>Действие</th>
+              <th>Статус</th>
+              <th>Слова</th>
             </tr>
           </thead>
           <tbody>
@@ -855,32 +994,32 @@ function renderForecast(){
         <thead>
           <tr>
             <th>Кампания</th>
-            <th>Ad / Group</th>
-            <th>Predicted</th>
-            <th>Actual</th>
-            <th>Status</th>
-            <th>Comment</th>
+            <th>Объявление / Группа</th>
+            <th>Прогноз</th>
+            <th>Факт</th>
+            <th>Статус</th>
+            <th>Комментарий</th>
           </tr>
         </thead>
         <tbody>
           ${rows.length ? rows.map(r => `
             <tr>
               <td><b>${esc(r.campaign_name)}</b></td>
-              <td>Ad ${esc(r.ad_id)}<br>Group ${esc(r.ad_group_id)}</td>
+              <td>Объявление ${esc(r.ad_id)}<br>Группа ${esc(r.ad_group_id)}</td>
               <td>
                 CTR: ${esc(r.predicted_ctr_pct || '-')}<br>
                 CPC: ${esc(r.predicted_cpc || '-')}<br>
-                Relevance: ${esc(r.predicted_relevance || '-')}
+                Релевантность: ${esc(r.predicted_relevance || '-')}
               </td>
               <td>
                 CTR: ${esc(r.actual_ctr_pct || '-')}<br>
                 CPC: ${esc(r.actual_cpc || '-')}<br>
-                Relevance: ${esc(r.actual_relevance || '-')}
+                Релевантность: ${esc(r.actual_relevance || '-')}
               </td>
               <td>${statusBadge(r.forecast_status)}</td>
               <td><div class="code">${esc(r.comment || '')}</div></td>
             </tr>
-          `).join('') : `<tr><td colspan="6"><div class="empty">Нет forecast review</div></td></tr>`}
+          `).join('') : `<tr><td colspan="6"><div class="empty">Нет данных прогноза</div></td></tr>`}
         </tbody>
       </table>
     </div>
@@ -912,11 +1051,11 @@ function renderScoring(){
     <div class="panel">
       <div class="row" style="justify-content:space-between">
         <div class="panel-title" style="margin-bottom:0">Качество атрибуции</div>
-        <span class="badge ${aq.status === 'high' ? 'good' : aq.status === 'medium' ? 'warn' : 'bad'}">${esc(aq.status || 'n/a')}</span>
+        <span class="badge ${aq.status === 'high' ? 'good' : aq.status === 'medium' ? 'warn' : 'bad'}">${esc(aq.status || 'н/д')}</span>
       </div>
       <div class="grid-3">
-        <div class="metric-box"><div class="metric-label">% direct</div><div class="metric-value" style="font-size:24px">${esc(Number(aq.direct_pct || 0).toFixed(1))}%</div></div>
-        <div class="metric-box"><div class="metric-label">% unknown</div><div class="metric-value" style="font-size:24px">${esc(Number(aq.unknown_pct || 0).toFixed(1))}%</div></div>
+        <div class="metric-box"><div class="metric-label">Доля прямых</div><div class="metric-value" style="font-size:24px">${esc(Number(aq.direct_pct || 0).toFixed(1))}%</div></div>
+        <div class="metric-box"><div class="metric-label">Доля неизвестных</div><div class="metric-value" style="font-size:24px">${esc(Number(aq.unknown_pct || 0).toFixed(1))}%</div></div>
         <div class="metric-box"><div class="metric-label">Окно</div><div class="metric-value" style="font-size:24px">${esc(aq.days || 90)}д</div></div>
       </div>
       <div class="small muted" style="margin-top:10px">Топ источников: ${(aq.top_sources || []).map(x => `${sourceLabel(x.source)} (${x.visitors})`).join(' · ') || 'нет данных'}</div>
@@ -943,7 +1082,7 @@ function renderScoring(){
         <div class="small muted">последние ${esc(audience.days || 90)} дней</div>
       </div>
       ${audience.note ? `<div class="small muted" style="margin-top:8px">${esc(audience.note)}</div>` : ''}
-      ${audience.gender_age_error ? `<div class="code" style="margin-top:8px">gender/age недоступны: ${esc(audience.gender_age_error)}</div>` : ''}
+      ${audience.gender_age_error ? `<div class="code" style="margin-top:8px">данные пола/возраста недоступны: ${esc(audience.gender_age_error)}</div>` : ''}
       <div class="table-wrap" style="margin-top:10px">
         <table class="table">
           <thead>
@@ -952,18 +1091,18 @@ function renderScoring(){
           <tbody>
             ${audienceRows.length ? audienceRows.map(r => `
               <tr>
-                <td>${esc(r.gender || 'unknown')}</td>
-                <td>${esc(r.age_interval || 'unknown')}</td>
+                <td>${esc(r.gender || 'не определено')}</td>
+                <td>${esc(r.age_interval || 'не определено')}</td>
                 <td>${esc(r.visits || 0)}</td>
                 <td>${esc(r.users || 0)}</td>
               </tr>
-            `).join('') : `<tr><td colspan="4"><div class="empty">Нет данных gender/age за выбранный период</div></td></tr>`}
+            `).join('') : `<tr><td colspan="4"><div class="empty">Нет данных по полу/возрасту за выбранный период</div></td></tr>`}
           </tbody>
         </table>
       </div>
       <div class="grid-2">
         <div class="card">
-          <div class="metric-label">Топ source (scoring)</div>
+          <div class="metric-label">Топ источников (скоринг)</div>
           <div class="code">${sourceRows.length ? sourceRows.map(r => `${sourceLabel(r.source)}: ${r.visitors || 0}`).join('\n') : 'нет данных'}</div>
         </div>
         <div class="card">
@@ -1101,7 +1240,7 @@ function renderScoringCreatives(){
     </div>
     <div class="panel">
       <div class="row" style="justify-content:space-between">
-        <div class="panel-title" style="margin-bottom:0">Реакция в Директ по scoring-тегам</div>
+        <div class="panel-title" style="margin-bottom:0">Реакция в Директ по тегам скоринга</div>
         <div class="small muted">${esc(reaction.count || 0)} тегов · ${esc(reaction.days || 30)} дней</div>
       </div>
       <div class="small muted" style="margin-top:6px">
@@ -1742,7 +1881,7 @@ async function openScoringDetails(visitorId){
   try {
     data = await api('/api/scoring/visitor/' + encodeURIComponent(visitorId));
   } catch (e) {
-    alert('Не удалось загрузить visitor detail: ' + e.message);
+    alert('Не удалось загрузить карточку посетителя: ' + e.message);
     return;
   }
   const explanation = (data && typeof data.explanation_json === 'object' && data.explanation_json) ? data.explanation_json : {};
@@ -1804,6 +1943,8 @@ async function openScoringDetails(visitorId){
   `;
 
   document.getElementById('scoring-drawer-content').innerHTML = html;
+  decorateBlockHelpHints();
+  decorateUiHelpHints();
   document.getElementById('scoring-drawer').style.display = 'block';
 }
 
@@ -1854,12 +1995,12 @@ function renderActions(){
       <table class="table">
         <thead>
           <tr>
-            <th>Time</th>
-            <th>Entity</th>
-            <th>Key</th>
-            <th>Action</th>
-            <th>Status</th>
-            <th>Details</th>
+            <th>Время</th>
+            <th>Сущность</th>
+            <th>Ключ</th>
+            <th>Действие</th>
+            <th>Статус</th>
+            <th>Детали</th>
           </tr>
         </thead>
         <tbody>
@@ -1909,8 +2050,14 @@ function renderSection(){
   if (CURRENT_SECTION === 'scoring_templates') renderScoringTemplates();
   if (CURRENT_SECTION === 'actions') renderActions();
   if (CURRENT_SECTION === 'diagnostics') renderDiagnostics();
+  decorateMenuHelpHints();
+  decorateBlockHelpHints();
   decorateUiHelpHints();
-  window.requestAnimationFrame(() => decorateUiHelpHints());
+  window.requestAnimationFrame(() => {
+    decorateMenuHelpHints();
+    decorateBlockHelpHints();
+    decorateUiHelpHints();
+  });
 }
 
 async function reloadAll(){
@@ -1941,7 +2088,7 @@ async function ignoreCreative(adId){
     method:'POST',
     body: JSON.stringify({ ad_id: adId })
   });
-  alert(data.message || 'Игнорироватьd');
+  alert(data.message || 'Игнорировано');
   await reloadAll();
 }
 
@@ -1955,7 +2102,7 @@ async function snoozeCreative(adId){
       reason:'admin ui snooze'
     })
   });
-  alert(data.message || 'Отложитьd');
+  alert(data.message || 'Отложено');
   await reloadAll();
 }
 
@@ -1990,9 +2137,9 @@ QUESTION:
 Проанализируй этот объект и дай рекомендации.
 [/AI_CONTEXT]`;
     await navigator.clipboard.writeText(text);
-    alert('AI context скопирован');
+    alert('Контекст для ИИ скопирован');
   }catch(e){
-    alert('Не удалось получить context: ' + e.message);
+    alert('Не удалось получить контекст: ' + e.message);
   }
 }
 
@@ -2009,7 +2156,7 @@ QUESTION:
 Проанализируй этот набор минус-слов. Какие безопасно применять, какие рискованные?
 [/AI_CONTEXT]`;
   await navigator.clipboard.writeText(text);
-  alert('Negative context скопирован');
+  alert('Контекст по минус-словам скопирован');
 }
 
 async function runDiagnostic(){
@@ -2021,7 +2168,7 @@ async function runDiagnostic(){
   if (!output || !meta) return;
 
   output.value = 'Собираю диагностику...';
-  meta.textContent = 'running...';
+  meta.textContent = 'выполняется...';
 
   try{
     const data = await api('/api/diagnostic');
@@ -2029,8 +2176,8 @@ async function runDiagnostic(){
     meta.textContent = `ok=${data.ok} returncode=${data.returncode} report=${data.report_path}`;
   }catch(e){
     output.value = 'Ошибка запуска диагностики: ' + e.message;
-    meta.textContent = 'failed';
-  }
+    meta.textContent = 'ошибка';
+}
 }
 
 async function copyDiagnostic(){
@@ -2046,6 +2193,7 @@ async function copyDiagnostic(){
 document.addEventListener('DOMContentLoaded', async () => {
   applyInitialRouteState();
   applyStandaloneScoringLayout();
+  decorateMenuHelpHints();
   document.getElementById('global-search').addEventListener('input', renderSection);
   document.getElementById('campaign-filter').addEventListener('change', renderSection);
   document.getElementById('status-filter').addEventListener('change', renderSection);
