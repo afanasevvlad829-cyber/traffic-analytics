@@ -1,6 +1,7 @@
 import os
 import json
 import subprocess
+from html import escape
 from pathlib import Path
 from typing import Any
 from fastapi import FastAPI, HTTPException
@@ -58,6 +59,37 @@ WEBAPP_PATH = os.getenv("WEBAPP_PATH", "/webapp")
 app = FastAPI(title="Direct AI WebApp")
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+def _run_git(*args: str) -> str:
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(BASE_DIR), *args],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if proc.returncode != 0:
+            return ""
+        return (proc.stdout or "").strip()
+    except Exception:
+        return ""
+
+
+def _get_admin_ui_meta() -> dict[str, str]:
+    version = _run_git("rev-parse", "--short", "HEAD") or os.getenv("UI_BUILD_VERSION", "unknown")
+    branch = _run_git("rev-parse", "--abbrev-ref", "HEAD") or os.getenv("UI_BUILD_BRANCH", "unknown")
+    change_subject = _run_git("log", "-1", "--pretty=format:%s") or "нет данных"
+    changed_at = _run_git("log", "-1", "--date=format:%Y-%m-%d %H:%M", "--pretty=format:%cd") or "нет данных"
+
+    return {
+        "ui_version": escape(version),
+        "ui_branch": escape(branch),
+        "ui_change_subject": escape(change_subject),
+        "ui_changed_at": escape(changed_at),
+        "ui_asset_version": escape(version),
+    }
 
 def db():
     return psycopg2.connect(
@@ -119,6 +151,15 @@ def health():
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page():
     html = (TEMPLATES_DIR / "admin.html").read_text(encoding="utf-8")
+    meta = _get_admin_ui_meta()
+    html = (
+        html
+        .replace("{{UI_VERSION}}", meta["ui_version"])
+        .replace("{{UI_BRANCH}}", meta["ui_branch"])
+        .replace("{{UI_CHANGE_SUBJECT}}", meta["ui_change_subject"])
+        .replace("{{UI_CHANGED_AT}}", meta["ui_changed_at"])
+        .replace("{{UI_ASSET_VERSION}}", meta["ui_asset_version"])
+    )
     response = HTMLResponse(html)
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
