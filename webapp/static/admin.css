@@ -523,6 +523,18 @@ textarea.big{
   cursor:wait;
 }
 
+.status-ok{
+  color:#86efac;
+}
+
+.status-warn{
+  color:#fdba74;
+}
+
+.status-error{
+  color:#fca5a5;
+}
+
 .tabulator .tabulator-row.tabulator-selected{
   background:rgba(59,130,246,.18);
 }
