@@ -1,6 +1,7 @@
 import os
 import json
 import subprocess
+import re
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -77,11 +78,35 @@ def _run_git(*args: str) -> str:
         return ""
 
 
+def _github_repo_url() -> str:
+    remote = _run_git("config", "--get", "remote.origin.url")
+    if not remote:
+        return ""
+    remote = remote.strip()
+    if remote.startswith("git@github.com:"):
+        remote = "https://github.com/" + remote.split("git@github.com:", 1)[1]
+    elif remote.startswith("https://github.com/") or remote.startswith("http://github.com/"):
+        remote = remote.replace("http://", "https://", 1)
+    else:
+        return ""
+
+    if remote.endswith(".git"):
+        remote = remote[:-4]
+
+    if not re.match(r"^https://github\.com/[^/]+/[^/]+$", remote):
+        return ""
+    return remote
+
+
 def _get_admin_ui_meta() -> dict[str, str]:
     version = _run_git("rev-parse", "--short", "HEAD") or os.getenv("UI_BUILD_VERSION", "unknown")
+    full_sha = _run_git("rev-parse", "HEAD")
     branch = _run_git("rev-parse", "--abbrev-ref", "HEAD") or os.getenv("UI_BUILD_BRANCH", "unknown")
     change_subject = _run_git("log", "-1", "--pretty=format:%s") or "нет данных"
     changed_at = _run_git("log", "-1", "--date=format:%Y-%m-%d %H:%M", "--pretty=format:%cd") or "нет данных"
+    repo_url = _github_repo_url()
+    branch_url = f"{repo_url}/tree/{branch}" if repo_url and branch and branch != "unknown" else "#"
+    commit_url = f"{repo_url}/commit/{full_sha}" if repo_url and full_sha else "#"
 
     return {
         "ui_version": escape(version),
@@ -89,6 +114,9 @@ def _get_admin_ui_meta() -> dict[str, str]:
         "ui_change_subject": escape(change_subject),
         "ui_changed_at": escape(changed_at),
         "ui_asset_version": escape(version),
+        "ui_commit_short": escape(version),
+        "ui_branch_url": escape(branch_url),
+        "ui_commit_url": escape(commit_url),
     }
 
 def db():
@@ -159,6 +187,9 @@ def admin_page():
         .replace("{{UI_CHANGE_SUBJECT}}", meta["ui_change_subject"])
         .replace("{{UI_CHANGED_AT}}", meta["ui_changed_at"])
         .replace("{{UI_ASSET_VERSION}}", meta["ui_asset_version"])
+        .replace("{{UI_COMMIT_SHORT}}", meta["ui_commit_short"])
+        .replace("{{UI_BRANCH_URL}}", meta["ui_branch_url"])
+        .replace("{{UI_COMMIT_URL}}", meta["ui_commit_url"])
     )
     response = HTMLResponse(html)
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
