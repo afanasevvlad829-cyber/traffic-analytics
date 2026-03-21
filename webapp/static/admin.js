@@ -1193,44 +1193,39 @@ function renderScoringTemplates(){
     ${items.length ? items.map((row) => {
       const safeId = safeDomId(row.cohort_name || '');
       return `
-      <div class="panel">
-        <div class="row" style="justify-content:space-between">
-          <div>
-            <div><b>${esc(row.cohort_name || '-')}</b> · ${segmentBadge(row.segment)}</div>
-            <div class="small muted">
-              Аудитория: ${esc(row.audience_size || 0)} · Окно: ${esc(row.window_days || days)} дн. · ОС: ${esc((row.os_root || 'all').toUpperCase())}
+      <div class="panel template-cohort-shell">
+        <div class="template-cohort-main">
+          <div class="row" style="justify-content:space-between;align-items:flex-start">
+            <div>
+              <div><b>${esc(row.cohort_name || '-')}</b> · ${segmentBadge(row.segment)}</div>
+              <div class="small muted">
+                Аудитория: ${esc(row.audience_size || 0)} · Окно: ${esc(row.window_days || days)} дн. · ОС: ${esc((row.os_root || 'all').toUpperCase())}
+              </div>
             </div>
-          </div>
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
             <div class="small muted">Тег Директ: <span class="badge">${esc(row.direct_tag || '-')}</span></div>
-            <div id="banner-inline-status-${safeId}" class="small muted" style="min-width:220px;text-align:right"></div>
-            <button id="banner-generate-btn-${safeId}" class="btn primary" onclick="generateScoringBanners('${escapeJsSingleQuoted(row.cohort_name || '')}')">
-              Сгенерировать баннеры
-            </button>
           </div>
-        </div>
 
-        <div class="grid-2" style="margin-top:10px">
-          <div class="card">
-            <div class="metric-label">Кратко по сегменту</div>
-            <div class="code">Причина: ${esc(reasonLabel(row.short_reason_hint || 'unknown'))}
+          <div class="grid-2 template-cohort-meta">
+            <div class="card">
+              <div class="metric-label">Кратко по сегменту</div>
+              <div class="code">Причина: ${esc(reasonLabel(row.short_reason_hint || 'unknown'))}
 Источник: ${esc(sourceLabel(row.source_hint || 'unknown'))}
 Сегмент: ${esc(String(row.segment || '-').toUpperCase())}
 Гипотеза: ${esc(shortText(row.kpi_hypothesis?.objective || '-', 140))}</div>
-          </div>
-          <div class="card">
-            <div class="metric-label">Связка с Директ</div>
-            <div class="code">ad_group_id: ${esc(row.ad_group_id || '-')}
+            </div>
+            <div class="card">
+              <div class="metric-label">Связка с Директ</div>
+              <div class="code">ad_group_id: ${esc(row.ad_group_id || '-')}
 retargeting_list_id: ${esc(row.retargeting_list_id || '-')}
 goal_id: ${esc(row.goal_id || '-')}
 Приоритет: ${esc(row.strategy_priority || '-')}</div>
+            </div>
           </div>
-        </div>
 
-        <details class="template-details">
-          <summary>KPI-гипотеза (раскрыть детали)</summary>
-          <div class="template-details-content">
-            <div class="code">Цель: ${esc(row.kpi_hypothesis?.objective || '-')}
+          <details class="template-details">
+            <summary>KPI-гипотеза (раскрыть детали)</summary>
+            <div class="template-details-content">
+              <div class="code">Цель: ${esc(row.kpi_hypothesis?.objective || '-')}
 Окно сравнения: ${esc(row.kpi_hypothesis?.comparison_window_days || '-')}д
 
 Экономика:
@@ -1267,47 +1262,54 @@ ${esc(row.kpi_hypothesis?.success_rule || '-')}
 
 Примечание:
 ${esc(row.kpi_hypothesis?.data_gap_note || '-')}</div>
-          </div>
-        </details>
-
-        <details class="template-details" open>
-          <summary>Варианты сообщений для этой аудитории</summary>
-          <div class="template-details-content">
-            <div class="table-wrap">
-              <table class="table">
-                <thead>
-                  <tr>
-                    <th>Вариант</th>
-                    <th>Креативный угол</th>
-                    <th>Заголовок</th>
-                    <th>Текст</th>
-                    <th>CTA</th>
-                    <th>Почему так</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${(row.variants || []).length ? (row.variants || []).map((v, idx) => `
-                    <tr>
-                      <td><span class="badge">${esc(v.variant_key || `v${idx + 1}`)}</span></td>
-                      <td>${esc(v.creative_angle || '-')}</td>
-                      <td>${esc(v.headline || '-')}</td>
-                      <td>${esc(shortText(v.body || '-', 180))}</td>
-                      <td>${esc(v.cta || '-')}</td>
-                      <td>${esc(shortText(v.why_this || '-', 200))}</td>
-                    </tr>
-                  `).join('') : `<tr><td colspan="6"><div class="empty">Нет вариантов для этой аудитории</div></td></tr>`}
-                </tbody>
-              </table>
             </div>
-          </div>
-        </details>
+          </details>
 
-        <div class="card" style="margin-top:10px">
-          <div class="metric-label">Сгенерированные баннеры</div>
-          <div id="banners-${safeId}" class="small muted" style="margin-top:8px">
-            Пока не сгенерировано. Нажмите «Сгенерировать баннеры».
-          </div>
+          <details class="template-details" open>
+            <summary>Варианты сообщений для этой аудитории</summary>
+            <div class="template-details-content">
+              <div class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Вариант</th>
+                      <th>Креативный угол</th>
+                      <th>Заголовок</th>
+                      <th>Текст</th>
+                      <th>CTA</th>
+                      <th>Почему так</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${(row.variants || []).length ? (row.variants || []).map((v, idx) => `
+                      <tr>
+                        <td><span class="badge">${esc(v.variant_key || `v${idx + 1}`)}</span></td>
+                        <td>${esc(v.creative_angle || '-')}</td>
+                        <td>${esc(v.headline || '-')}</td>
+                        <td>${esc(shortText(v.body || '-', 180))}</td>
+                        <td>${esc(v.cta || '-')}</td>
+                        <td>${esc(shortText(v.why_this || '-', 200))}</td>
+                      </tr>
+                    `).join('') : `<tr><td colspan="6"><div class="empty">Нет вариантов для этой аудитории</div></td></tr>`}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </details>
         </div>
+
+        <aside class="template-banner-side">
+          <div class="template-banner-side-head">
+            <div class="metric-label">Сгенерированные баннеры</div>
+            <div id="banner-inline-status-${safeId}" class="small muted"></div>
+          </div>
+          <button id="banner-generate-btn-${safeId}" class="btn primary template-banner-side-btn" onclick="generateScoringBanners('${escapeJsSingleQuoted(row.cohort_name || '')}')">
+            Сгенерировать баннеры
+          </button>
+          <div id="banners-${safeId}" class="template-banner-content">
+            ${renderTemplateBannerSlots([])}
+          </div>
+        </aside>
       </div>
     `;
     }).join('') : `
@@ -1493,6 +1495,28 @@ function updateBannerProgressState(safeId, percent, message){
   if (msg && message) msg.textContent = String(message);
 }
 
+function renderTemplateBannerSlots(images){
+  const list = Array.isArray(images) ? images.slice(0, 3) : [];
+  const slots = list.map((img, idx) => `
+    <div class="template-banner-slot">
+      <a href="${esc(img.static_url)}" target="_blank" rel="noopener noreferrer">
+        <img class="banner-image" src="${esc(img.static_url)}" alt="${esc(img.variant_key || `banner-${idx + 1}`)}"/>
+      </a>
+      <div class="small" style="margin-top:6px"><b>${esc(img.variant_key || `v${idx + 1}`)}</b></div>
+      <div class="small muted">${esc(shortText(img.headline || '', 64))}</div>
+    </div>
+  `);
+  for (let idx = list.length; idx < 3; idx += 1) {
+    slots.push(`
+      <div class="template-banner-slot placeholder">
+        <div class="template-banner-placeholder-index">${idx + 1}</div>
+        <div class="small muted">Баннер пока не сгенерирован</div>
+      </div>
+    `);
+  }
+  return `<div class="template-banner-rail">${slots.join('')}</div>`;
+}
+
 async function generateScoringBanners(cohortName){
   const name = String(cohortName || '').trim();
   if (!name) return;
@@ -1560,7 +1584,10 @@ async function generateScoringBanners(cohortName){
     if (!container) return;
     if (!images.length) {
       setBannerInlineStatus(name, 'Завершено без изображений', 'warn');
-      renderBannerProgressState(container, safeId, 100, 'Генерация завершена, но изображения не получены.');
+      container.innerHTML = `
+        <div class="template-banner-meta small muted">Генерация завершена, но изображения не получены.</div>
+        ${renderTemplateBannerSlots([])}
+      `;
       return;
     }
     const costText = Number.isFinite(Number(data.cost_usd))
@@ -1572,22 +1599,11 @@ async function generateScoringBanners(cohortName){
       : '';
 
     container.innerHTML = `
-      <div class="small muted" style="margin-bottom:8px">
+      <div class="template-banner-meta small muted">
         Сгенерировано: ${esc(data.generated_count || images.length)} · Провайдер: ${esc(data.provider_used || data.provider_requested || '-')} · Модель: ${esc(data.model_used || data.model || '-')} · Размер: ${esc(data.size || '-')}${costText}${usageText}
       </div>
-      <div class="banner-grid">
-        ${images.map((img) => `
-          <div class="banner-card">
-            <a href="${esc(img.static_url)}" target="_blank" rel="noopener noreferrer">
-              <img class="banner-image" src="${esc(img.static_url)}" alt="${esc(img.variant_key || 'banner')}"/>
-            </a>
-            <div class="small" style="margin-top:8px"><b>${esc(img.variant_key || '-')}</b></div>
-            <div class="small muted">${esc(shortText(img.headline || '', 80))}</div>
-            <div class="small muted">${esc(img.cta || '')}</div>
-          </div>
-        `).join('')}
-      </div>
-      ${(data.failed_count || 0) > 0 ? `<div class="code" style="margin-top:10px">Ошибок генерации: ${esc(data.failed_count)}</div>` : ''}
+      ${renderTemplateBannerSlots(images)}
+      ${(data.failed_count || 0) > 0 ? `<div class="code" style="margin-top:8px">Ошибок генерации: ${esc(data.failed_count)}</div>` : ''}
     `;
   } catch (e) {
     if (timer) window.clearInterval(timer);

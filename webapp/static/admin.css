@@ -368,41 +368,53 @@ body.scoring-standalone{
 
 body.scoring-standalone .sidebar{
   display:block;
-  background:#0f172a;
-  border-right:1px solid #1e293b;
+  background:#ffffff;
+  border-right:1px solid #dbe1ea;
 }
 
 body.scoring-standalone .brand{
-  color:#ffffff;
+  color:#0f172a;
 }
 
 body.scoring-standalone .brand-sub{
-  color:#94a3b8;
+  color:#64748b;
 }
 
 body.scoring-standalone .nav-group-title{
-  color:#94a3b8;
+  color:#64748b;
 }
 
 body.scoring-standalone .nav button{
-  color:#dbe3f1;
-  border-color:#273349;
+  color:#1f2937;
+  border-color:#dbe1ea;
+  background:#ffffff;
 }
 
 body.scoring-standalone .nav button.active{
-  background:#1f2b46;
-  border-color:#1f2b46;
-  color:#ffffff;
+  background:#eaf1ff;
+  border-color:#bfd2ff;
+  color:#1d4ed8;
 }
 
 body.scoring-standalone .nav-help{
-  border-color:#3a4a6f;
-  color:#9fb0d1;
+  border-color:#cbd5e1;
+  color:#64748b;
+}
+
+body.scoring-standalone .nav-help[data-help]::before{
+  border-color:#dbe1ea;
+  background:#ffffff;
+  color:#334155;
+  box-shadow:0 10px 24px rgba(15,23,42,.12);
+}
+
+body.scoring-standalone .nav-help[data-help]::after{
+  border-right-color:#ffffff;
 }
 
 body.scoring-standalone .sidebar-meta{
-  border-top:1px solid #273349;
-  color:#94a3b8;
+  border-top:1px solid #dbe1ea;
+  color:#64748b;
 }
 
 body.scoring-standalone .search-row,
@@ -453,6 +465,70 @@ body.scoring-standalone .tabulator .tabulator-row{
 
 body.scoring-standalone .tabulator .tabulator-row:hover{
   background:#eef2f7 !important;
+}
+
+body.scoring-standalone .tabulator .tabulator-footer{
+  background:#f8fafc;
+  color:#64748b;
+  border-top:1px solid #dbe1ea;
+}
+
+body.scoring-standalone .tabulator .tabulator-cell{
+  border-right:1px solid #e2e8f0;
+}
+
+body.scoring-standalone .table th{
+  background:#eef2f7;
+  color:#334155;
+}
+
+body.scoring-standalone .badge{
+  background:#eef2ff;
+  color:#1e3a8a;
+  border-color:#c7d2fe;
+}
+
+body.scoring-standalone .badge.good{
+  background:#dcfce7;
+  color:#166534;
+  border-color:#86efac;
+}
+
+body.scoring-standalone .badge.warn{
+  background:#fef3c7;
+  color:#92400e;
+  border-color:#fcd34d;
+}
+
+body.scoring-standalone .badge.bad{
+  background:#fee2e2;
+  color:#991b1b;
+  border-color:#fca5a5;
+}
+
+body.scoring-standalone .chip{
+  background:#eef2ff;
+  color:#1e3a8a;
+}
+
+body.scoring-standalone .status-ok{
+  color:#166534;
+}
+
+body.scoring-standalone .status-warn{
+  color:#92400e;
+}
+
+body.scoring-standalone .status-error{
+  color:#b91c1c;
+}
+
+body.scoring-standalone .banner-progress-track{
+  background:#eef2f7;
+}
+
+body.scoring-standalone .banner-image{
+  background:#f8fafc;
 }
 
 .table{
@@ -673,6 +749,87 @@ textarea.big{
   padding:10px 12px;
 }
 
+.template-cohort-shell{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 360px;
+  gap:14px;
+  align-items:start;
+}
+
+.template-cohort-main{
+  min-width:0;
+}
+
+.template-cohort-meta{
+  margin-top:10px;
+}
+
+.template-banner-side{
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:var(--panel-2);
+  padding:12px;
+  display:grid;
+  gap:10px;
+}
+
+.template-banner-side-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:8px;
+}
+
+.template-banner-side-btn{
+  width:100%;
+}
+
+.template-banner-content{
+  display:grid;
+  gap:8px;
+}
+
+.template-banner-meta{
+  line-height:1.45;
+}
+
+.template-banner-rail{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:8px;
+}
+
+.template-banner-slot{
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--panel);
+  padding:8px;
+}
+
+.template-banner-slot.placeholder{
+  min-height:170px;
+  display:grid;
+  place-content:center;
+  justify-items:center;
+  text-align:center;
+  border-style:dashed;
+  background:var(--panel-2);
+}
+
+.template-banner-placeholder-index{
+  width:24px;
+  height:24px;
+  border-radius:999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:12px;
+  font-weight:700;
+  border:1px solid var(--line);
+  color:var(--muted);
+  margin-bottom:8px;
+}
+
 .banner-image{
   width:100%;
   aspect-ratio:3 / 2;
@@ -754,7 +911,7 @@ textarea.big{
   .shell{grid-template-columns:1fr}
   .sidebar{height:auto;position:relative;border-right:none;border-bottom:1px solid var(--line)}
   .search-row{grid-template-columns:1fr}
-  .grid-2,.grid-3,.split,.scoring-grid{grid-template-columns:1fr}
+  .grid-2,.grid-3,.split,.scoring-grid,.template-cohort-shell{grid-template-columns:1fr}
   .nav-help[data-help]::before,
   .nav-help[data-help]::after{
     display:none;
