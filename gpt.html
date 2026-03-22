@@ -1,0 +1,1374 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AiDaCamp — Prototype Full Logic</title>
+  <style>
+    :root{
+      --bg:#eef1f6;
+      --panel:#f7f8fb;
+      --card:#ffffff;
+      --line:#d9dee8;
+      --text:#1e2430;
+      --muted:#6d7586;
+      --accent:#ff8a00;
+      --accent-2:#ff9f2f;
+      --accent-soft:#fff1df;
+      --shadow:0 18px 40px rgba(20,29,45,.08);
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0}
+    body{
+      font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      background:var(--bg);
+      color:var(--text);
+      min-height:100vh;
+    }
+    .hidden{display:none !important}
+
+    .page{
+      max-width:1440px;
+      margin:0 auto;
+      padding:28px 24px 120px;
+    }
+
+    .top-switcher{
+      display:flex;
+      justify-content:center;
+      margin-bottom:18px;
+    }
+    .switch-wrap{
+      display:flex;
+      gap:8px;
+      padding:8px;
+      background:#fff;
+      border:1px solid var(--line);
+      border-radius:999px;
+      box-shadow:var(--shadow);
+    }
+    .switch-btn{
+      border:none;
+      border-radius:999px;
+      padding:10px 16px;
+      background:transparent;
+      color:var(--text);
+      font-weight:700;
+      font-size:14px;
+      cursor:pointer;
+    }
+    .switch-btn.active{
+      background:linear-gradient(135deg,var(--accent),var(--accent-2));
+      color:#fff;
+    }
+
+    .title{
+      text-align:center;
+      margin-bottom:26px;
+    }
+    .title h1{
+      margin:0 0 8px;
+      font-size:34px;
+      line-height:1.12;
+      letter-spacing:-.03em;
+    }
+    .title p{
+      margin:0;
+      color:var(--muted);
+      font-size:16px;
+    }
+
+    .screen{
+      border-radius:30px;
+      overflow:hidden;
+      background:var(--panel);
+      box-shadow:var(--shadow);
+      border:1px solid rgba(255,255,255,.7);
+    }
+
+    .hero-shell{
+      position:relative;
+      padding:18px;
+      min-height:420px;
+      background:
+        linear-gradient(180deg, rgba(16,22,33,.20), rgba(16,22,33,.62)),
+        radial-gradient(circle at 20% 20%, rgba(255,138,0,.18), transparent 32%),
+        radial-gradient(circle at 100% 0%, rgba(116,170,255,.18), transparent 28%),
+        linear-gradient(135deg, #7489a8 0%, #50637d 40%, #1f2835 100%);
+      color:#fff;
+    }
+
+    .hero-topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:26px;
+    }
+
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:10px 14px;
+      border-radius:999px;
+      background:#fff;
+      color:#111827;
+      font-weight:700;
+      font-size:14px;
+      box-shadow:0 10px 25px rgba(0,0,0,.08);
+      white-space:nowrap;
+    }
+
+    .brand-dot{
+      width:10px;
+      height:10px;
+      border-radius:50%;
+      background:var(--accent);
+      flex:0 0 auto;
+    }
+
+    .hero-menu{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+
+    .menu-pill{
+      padding:10px 14px;
+      border-radius:999px;
+      background:rgba(255,255,255,.9);
+      color:#1f2937;
+      font-size:12px;
+      font-weight:600;
+      box-shadow:0 8px 20px rgba(0,0,0,.06);
+      cursor:pointer;
+      border:none;
+    }
+    .menu-pill.active{
+      background:linear-gradient(135deg,var(--accent),var(--accent-2));
+      color:#fff;
+    }
+
+    .hero-content{
+      max-width:60%;
+    }
+    .hero-tag{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:9px 12px;
+      border-radius:999px;
+      background:rgba(255,255,255,.18);
+      border:1px solid rgba(255,255,255,.18);
+      font-size:12px;
+      margin-bottom:16px;
+      backdrop-filter:blur(8px);
+    }
+
+    .hero-content h2{
+      margin:0 0 10px;
+      font-size:30px;
+      line-height:1.12;
+      letter-spacing:-.03em;
+      max-width:680px;
+    }
+
+    .hero-sub{
+      color:rgba(255,255,255,.84);
+      font-size:15px;
+      line-height:1.45;
+      margin-bottom:18px;
+    }
+
+    .feature-row{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .feature-pill{
+      padding:10px 12px;
+      border-radius:14px;
+      background:rgba(0,0,0,.24);
+      border:1px solid rgba(255,255,255,.12);
+      font-size:12px;
+      min-width:132px;
+      backdrop-filter:blur(10px);
+    }
+    .feature-pill strong{
+      display:block;
+      font-size:12px;
+      margin-bottom:3px;
+    }
+
+    .occupancy-badge{
+      display:inline-flex;
+      align-items:center;
+      gap:7px;
+      margin-top:14px;
+      padding:10px 12px;
+      border-radius:999px;
+      background:rgba(255,138,0,.18);
+      border:1px solid rgba(255,138,0,.34);
+      color:#fff3e0;
+      font-size:12px;
+      font-weight:700;
+    }
+
+    .hero-booking-card{
+      position:absolute;
+      right:18px;
+      top:78px;
+      width:320px;
+      padding:18px;
+      border-radius:24px;
+      background:rgba(12,17,24,.78);
+      border:1px solid rgba(255,255,255,.10);
+      backdrop-filter:blur(16px);
+      box-shadow:0 20px 50px rgba(0,0,0,.28);
+      color:#fff;
+    }
+
+    .hero-booking-card h3{
+      margin:0 0 8px;
+      font-size:20px;
+      letter-spacing:-.02em;
+    }
+    .hero-booking-card p{
+      margin:0 0 14px;
+      color:rgba(255,255,255,.72);
+      font-size:13px;
+      line-height:1.45;
+    }
+
+    .age-tabs{
+      display:flex;
+      gap:8px;
+      margin-bottom:12px;
+    }
+    .age-tab{
+      flex:1;
+      border:none;
+      border-radius:12px;
+      padding:10px 8px;
+      background:rgba(255,255,255,.08);
+      color:#fff;
+      font-size:12px;
+      font-weight:700;
+      cursor:pointer;
+    }
+    .age-tab.active{
+      background:linear-gradient(135deg, var(--accent), var(--accent-2));
+    }
+
+    .shift-option{
+      border-radius:14px;
+      background:#fff;
+      color:#111827;
+      padding:11px 12px;
+      margin-bottom:10px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      font-size:13px;
+      cursor:pointer;
+      border:1px solid transparent;
+    }
+    .shift-option.active{
+      border-color:#ffb15e;
+      box-shadow:0 0 0 3px rgba(255,138,0,.12);
+    }
+    .shift-option small{
+      color:var(--muted);
+      display:block;
+      margin-top:2px;
+    }
+
+    .shift-price-chip{
+      padding:6px 8px;
+      border-radius:999px;
+      background:var(--accent-soft);
+      color:#a44f00;
+      font-size:11px;
+      font-weight:800;
+      white-space:nowrap;
+    }
+
+    .cta-main{
+      width:100%;
+      border:none;
+      border-radius:16px;
+      padding:15px 16px;
+      color:#fff;
+      font-weight:800;
+      font-size:15px;
+      background:linear-gradient(135deg,var(--accent),var(--accent-2));
+      box-shadow:0 14px 32px rgba(255,138,0,.28);
+      cursor:pointer;
+    }
+
+    .cta-main:disabled{
+      opacity:.45;
+      cursor:not-allowed;
+      box-shadow:none;
+    }
+
+    .under-cta{
+      margin-top:10px;
+      text-align:center;
+      color:rgba(255,255,255,.68);
+      font-size:12px;
+    }
+
+    .body-sections{
+      padding:18px;
+      display:grid;
+      gap:18px;
+    }
+
+    .section-card{
+      background:#fff;
+      border-radius:24px;
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+      padding:18px;
+    }
+
+    .section-card h3{
+      margin:0 0 10px;
+      font-size:22px;
+      letter-spacing:-.02em;
+    }
+    .section-card p{
+      margin:0;
+      color:var(--muted);
+      line-height:1.55;
+      font-size:14px;
+    }
+
+    .grid-3{
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:12px;
+    }
+
+    .mini-card{
+      background:#fff;
+      border-radius:20px;
+      border:1px solid var(--line);
+      padding:16px;
+    }
+
+    .mini-card h4{
+      margin:0 0 8px;
+      font-size:16px;
+      letter-spacing:-.01em;
+    }
+    .mini-card p{
+      margin:0;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.55;
+    }
+
+    .slot-grid{
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:12px;
+    }
+    .slot{
+      min-height:160px;
+      border-radius:20px;
+      border:1px dashed var(--line);
+      background:
+        radial-gradient(circle at 20% 20%, rgba(255,138,0,.12), transparent 25%),
+        linear-gradient(135deg,#f5f7fb,#eef2f7);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:var(--muted);
+      font-size:13px;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+    }
+
+    .team-grid{
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:12px;
+    }
+
+    .team-card{
+      background:#fff;
+      border:1px solid var(--line);
+      border-radius:20px;
+      padding:16px;
+      text-align:center;
+    }
+
+    .team-avatar{
+      width:88px;
+      height:88px;
+      border-radius:50%;
+      margin:0 auto 12px;
+      background:linear-gradient(135deg,#ffd8b3,#ffb15e);
+    }
+
+    .team-card strong{
+      display:block;
+      margin-bottom:6px;
+      font-size:15px;
+    }
+
+    .team-card span{
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.45;
+    }
+
+    .faq-grid{
+      display:grid;
+      gap:10px;
+    }
+    .faq-item{
+      border:1px solid var(--line);
+      background:#fff;
+      border-radius:18px;
+      padding:14px 16px;
+    }
+    .faq-item strong{
+      display:block;
+      margin-bottom:6px;
+      font-size:15px;
+    }
+    .faq-item span{
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.55;
+    }
+
+    .contacts-row{
+      display:grid;
+      grid-template-columns:repeat(4,1fr);
+      gap:12px;
+    }
+
+    .contact-card{
+      border:1px solid var(--line);
+      background:#fff;
+      border-radius:18px;
+      padding:16px;
+      text-align:center;
+    }
+
+    .contact-icon{
+      width:42px;
+      height:42px;
+      border-radius:50%;
+      margin:0 auto 10px;
+      background:#fff1df;
+      color:#d66a00;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:18px;
+      font-weight:800;
+    }
+
+    footer{
+      padding:18px;
+      background:#fff;
+      border-radius:24px;
+      border:1px solid var(--line);
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:20px;
+    }
+    footer h4{
+      margin:0 0 8px;
+      font-size:14px;
+    }
+    footer a, footer div{
+      display:block;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.8;
+      text-decoration:none;
+    }
+
+    .overlay{
+      position:fixed;
+      inset:0;
+      background:rgba(9,14,22,.64);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      z-index:80;
+    }
+
+    .overlay-card{
+      width:min(100%, 520px);
+      background:#fff;
+      border-radius:26px;
+      box-shadow:0 25px 55px rgba(20,29,45,.16);
+      padding:22px;
+      border:1px solid #edf0f5;
+    }
+
+    .overlay-card.dark{
+      background:#121821;
+      border-color:rgba(255,255,255,.08);
+      color:#fff;
+    }
+
+    .overlay-card h3{
+      margin:0 0 8px;
+      font-size:24px;
+      letter-spacing:-.03em;
+    }
+
+    .overlay-card p{
+      margin:0 0 16px;
+      color:var(--muted);
+      line-height:1.55;
+      font-size:14px;
+    }
+
+    .overlay-card.dark p{
+      color:rgba(255,255,255,.72);
+    }
+
+    .big-price{
+      font-size:42px;
+      font-weight:900;
+      letter-spacing:-.04em;
+      margin-bottom:8px;
+    }
+
+    .offer-code{
+      display:inline-flex;
+      margin-top:10px;
+      padding:8px 10px;
+      border-radius:999px;
+      background:#f7f8fb;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:700;
+    }
+
+    .overlay-card.dark .offer-code{
+      background:rgba(255,255,255,.08);
+      color:rgba(255,255,255,.76);
+    }
+
+    .overlay-actions{
+      display:grid;
+      gap:10px;
+      margin-top:16px;
+    }
+
+    .secondary-outline{
+      width:100%;
+      border:1px solid var(--line);
+      background:#fff;
+      color:var(--text);
+      border-radius:16px;
+      padding:15px 16px;
+      font-size:14px;
+      font-weight:800;
+      cursor:pointer;
+    }
+
+    .overlay-card.dark .secondary-outline{
+      background:rgba(255,255,255,.04);
+      border-color:rgba(255,255,255,.10);
+      color:#fff;
+    }
+
+    .summary-bar{
+      position:fixed;
+      bottom:0;
+      left:0;
+      right:0;
+      z-index:90;
+      background:rgba(255,255,255,.92);
+      backdrop-filter:blur(16px);
+      border-top:1px solid var(--line);
+      box-shadow:0 -10px 24px rgba(20,29,45,.05);
+    }
+
+    .summary-inner{
+      max-width:1440px;
+      margin:0 auto;
+      padding:12px 24px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:20px;
+    }
+
+    .summary-left{
+      display:flex;
+      align-items:center;
+      gap:14px;
+      flex-wrap:wrap;
+    }
+
+    .summary-item{
+      font-size:14px;
+      font-weight:700;
+    }
+
+    .summary-sub{
+      font-size:12px;
+      color:var(--muted);
+      margin-top:2px;
+    }
+
+    .summary-right{
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+
+    .summary-price{
+      text-align:right;
+    }
+
+    .summary-price strong{
+      display:block;
+      font-size:24px;
+      letter-spacing:-.03em;
+    }
+
+    .summary-timer{
+      color:#d56e00;
+      font-size:12px;
+      font-weight:800;
+    }
+
+    .form-drawer{
+      position:fixed;
+      inset:0;
+      background:rgba(8,12,18,.58);
+      z-index:95;
+      display:flex;
+      align-items:flex-end;
+      justify-content:center;
+      padding:0;
+    }
+
+    .form-panel{
+      width:min(100%, 720px);
+      background:#fff;
+      border-radius:28px 28px 0 0;
+      padding:24px 22px 26px;
+      box-shadow:0 -24px 60px rgba(20,29,45,.16);
+      max-height:92vh;
+      overflow:auto;
+    }
+
+    .form-panel h3{
+      margin:0 0 12px;
+      font-size:28px;
+      letter-spacing:-.03em;
+    }
+
+    .form-summary-box{
+      border:1px solid var(--line);
+      background:#fafbfd;
+      border-radius:20px;
+      padding:16px;
+      margin-bottom:16px;
+    }
+
+    .form-summary-box strong{
+      display:block;
+      margin-bottom:10px;
+      font-size:15px;
+    }
+
+    .form-summary-row{
+      color:var(--muted);
+      font-size:14px;
+      line-height:1.6;
+    }
+
+    .form-grid{
+      display:grid;
+      gap:12px;
+    }
+
+    .input-box{
+      width:100%;
+      min-height:54px;
+      border-radius:16px;
+      border:1px solid var(--line);
+      background:#fff;
+      padding:0 16px;
+      font-size:15px;
+      color:var(--text);
+      outline:none;
+    }
+
+    .check-row{
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.55;
+      margin:6px 0 14px;
+    }
+
+    .muted-note{
+      color:var(--muted);
+      font-size:13px;
+      margin-top:10px;
+      line-height:1.55;
+    }
+
+    @media (max-width: 1180px){
+      .hero-booking-card{
+        position:static;
+        width:100%;
+        margin-top:16px;
+      }
+      .hero-content,.hero-content.full{
+        max-width:100%;
+      }
+      .grid-3,.slot-grid,.team-grid,.contacts-row,footer{
+        grid-template-columns:1fr;
+      }
+    }
+
+    @media (max-width: 820px){
+      .page{
+        padding:20px 14px 120px;
+      }
+      .title h1{
+        font-size:28px;
+      }
+      .summary-inner{
+        flex-direction:column;
+        align-items:stretch;
+        padding:12px 14px;
+      }
+      .summary-right{
+        justify-content:space-between;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="top-switcher">
+      <div class="switch-wrap">
+        <button class="switch-btn active" id="desktopBtn">Десктоп</button>
+        <button class="switch-btn" id="mobileBtn">Мобильный</button>
+      </div>
+    </div>
+
+    <div class="title">
+      <h1>AiDaCamp — Новая архитектура лендинга</h1>
+      <p>Одна концепция, два режима: Full и Compact. Бронирование всегда в первом экране.</p>
+    </div>
+
+    <div id="desktopView">
+      <div class="screen">
+        <div class="hero-shell">
+          <div class="hero-topbar">
+            <div class="brand"><span class="brand-dot"></span>AiDaCamp</div>
+            <div class="hero-menu" id="serviceMenu">
+              <button class="menu-pill active" data-target="about">О лагере</button>
+              <button class="menu-pill" data-target="programs">Смены</button>
+              <button class="menu-pill" data-target="photos">Фото</button>
+              <button class="menu-pill" data-target="videos">Видео</button>
+              <button class="menu-pill" data-target="reviews">Отзывы</button>
+              <button class="menu-pill" data-target="faq">FAQ</button>
+              <button class="menu-pill" data-target="team">Команда</button>
+              <button class="menu-pill" data-target="contacts">Контакты</button>
+            </div>
+          </div>
+
+          <div class="hero-content full">
+            <div class="hero-tag">IT-лагерь для детей 7–14 лет</div>
+            <h2>AiDaCamp — лагерь, где дети создают, а не потребляют</h2>
+            <div class="hero-sub">Без телефонов • Программирование • Спорт • Живая атмосфера</div>
+
+            <div class="feature-row">
+              <div class="feature-pill">
+                <strong>IT-проекты</strong>
+                Scratch и Python
+              </div>
+              <div class="feature-pill">
+                <strong>Экономика</strong>
+                База финансовой грамотности
+              </div>
+              <div class="feature-pill">
+                <strong>Бассейн</strong>
+                Каждый день
+              </div>
+            </div>
+
+            <div class="occupancy-badge" id="occupancyBadge">⚡ 63% мест уже занято</div>
+          </div>
+
+          <div class="hero-booking-card">
+            <h3>Ближайшие смены</h3>
+            <p>Выберите возраст — покажем подходящие даты и свободные места.</p>
+
+            <div class="age-tabs" id="desktopAgeTabs">
+              <button class="age-tab active" data-age="7-9">7–9 лет</button>
+              <button class="age-tab" data-age="10-12">10–12 лет</button>
+              <button class="age-tab" data-age="13-14">13–14 лет</button>
+            </div>
+
+            <div id="desktopShiftOptions"></div>
+
+            <button class="cta-main" id="desktopStartBtn">Забронировать место →</button>
+            <div class="under-cta">○ Ответим в течение 5 минут</div>
+          </div>
+        </div>
+
+        <div class="body-sections">
+          <section class="section-card" id="section-about">
+            <h3>О лагере</h3>
+            <p>AiDaCamp — это формат, где ребёнок не просто “занят”, а реально создаёт: делает проекты, учится работать в команде, двигается, плавает, общается и получает понятный результат за смену.</p>
+          </section>
+
+          <section class="section-card" id="section-programs">
+            <h3>Описание смен</h3>
+            <div class="grid-3" id="shiftCardsGrid"></div>
+          </section>
+
+          <section class="section-card" id="section-photos">
+            <h3>Фото</h3>
+            <div class="slot-grid">
+              <div class="slot">Photo 1</div>
+              <div class="slot">Photo 2</div>
+              <div class="slot">Photo 3</div>
+            </div>
+          </section>
+
+          <section class="section-card" id="section-videos">
+            <h3>Видео</h3>
+            <div class="slot-grid">
+              <div class="slot">Video 1</div>
+              <div class="slot">Video 2</div>
+              <div class="slot">Video 3</div>
+            </div>
+          </section>
+
+          <section class="section-card" id="section-reviews">
+            <h3>Отзывы родителей</h3>
+            <div class="grid-3">
+              <div class="mini-card">
+                <h4>Елена, мама Максима</h4>
+                <p>«За 10 дней сын сделал свою первую игру. Дома такого вовлечения не было.»</p>
+              </div>
+              <div class="mini-card">
+                <h4>Андрей, папа Софии</h4>
+                <p>«Боялись отпускать первый раз, но всё организовано на высшем уровне.»</p>
+              </div>
+              <div class="mini-card">
+                <h4>Марина, мама Артёма</h4>
+                <p>«Не просто лагерь — у детей реально есть результат: бассейн, друзья, проекты.»</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="section-card" id="section-faq">
+            <h3>FAQ</h3>
+            <div class="faq-grid">
+              <div class="faq-item">
+                <strong>Как проходит бронирование?</strong>
+                <span>Вы выбираете возраст и смену, мы можем закрепить более выгодную цену, затем вы отправляете заявку — и мы подтверждаем бронь вручную.</span>
+              </div>
+              <div class="faq-item">
+                <strong>Нужно ли платить сразу?</strong>
+                <span>Нет. Сначала вы оставляете заявку, потом мы связываемся с вами.</span>
+              </div>
+              <div class="faq-item">
+                <strong>Что входит в программу?</strong>
+                <span>IT-проекты, бассейн, спорт, внутренняя экономика, командная работа и защита результата.</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="section-card" id="section-team">
+            <h3>Команда</h3>
+            <div class="team-grid">
+              <div class="team-card">
+                <div class="team-avatar"></div>
+                <strong>Дарья Афанасьева</strong>
+                <span>Основатель и идеолог лагеря</span>
+              </div>
+              <div class="team-card">
+                <div class="team-avatar"></div>
+                <strong>Никита</strong>
+                <span>Преподаватель Python и проектной работы</span>
+              </div>
+              <div class="team-card">
+                <div class="team-avatar"></div>
+                <strong>Александр</strong>
+                <span>Наставник по Scratch, играм и командным задачам</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="section-card" id="section-contacts">
+            <h3>Контакты и соцсети</h3>
+            <div class="contacts-row">
+              <div class="contact-card">
+                <div class="contact-icon">✈</div>
+                <strong>Telegram</strong>
+              </div>
+              <div class="contact-card">
+                <div class="contact-icon">W</div>
+                <strong>WhatsApp</strong>
+              </div>
+              <div class="contact-card">
+                <div class="contact-icon">☎</div>
+                <strong>Телефон</strong>
+              </div>
+              <div class="contact-card">
+                <div class="contact-icon">@</div>
+                <strong>Email</strong>
+              </div>
+            </div>
+          </section>
+
+          <footer>
+            <div>
+              <h4>Документы</h4>
+              <a href="#">Политика обработки персональных данных</a>
+              <a href="#">Пользовательское соглашение</a>
+              <a href="#">Договор-оферта</a>
+            </div>
+            <div>
+              <h4>Разделы</h4>
+              <a href="#section-about">О лагере</a>
+              <a href="#section-programs">Смены</a>
+              <a href="#section-team">Команда</a>
+            </div>
+            <div>
+              <h4>AiDaCamp</h4>
+              <div>© AiDaCamp</div>
+              <div>Контакты и соцсети подключим позже</div>
+            </div>
+          </footer>
+        </div>
+      </div>
+    </div>
+
+    <div id="mobileView" class="hidden">
+      <div class="screen" style="max-width:520px;margin:0 auto;">
+        <div class="hero-shell">
+          <div class="hero-topbar">
+            <div class="brand"><span class="brand-dot"></span>AiDaCamp</div>
+            <button class="menu-pill" onclick="switchView('desktop')">Полная версия</button>
+          </div>
+
+          <div class="hero-content" style="max-width:100%;">
+            <div class="hero-tag">IT-лагерь для детей 7–14 лет</div>
+            <h2 style="font-size:24px;">AiDaCamp — лагерь, где дети создают, а не потребляют</h2>
+            <div class="hero-sub">Без телефонов • Программирование • Спорт • Живая атмосфера</div>
+
+            <div class="feature-row">
+              <div class="feature-pill"><strong>IT-проекты</strong>Scratch и Python</div>
+              <div class="feature-pill"><strong>Экономика</strong>Финансовая грамотность</div>
+              <div class="feature-pill"><strong>Бассейн</strong>Каждый день</div>
+            </div>
+
+            <div class="occupancy-badge" id="mobileOccupancyBadge">⚡ 65% мест уже занято</div>
+
+            <div class="hero-booking-card" style="position:static;width:100%;margin-top:18px;">
+              <h3>Выбрать смену</h3>
+              <p>Укажите возраст — покажем подходящие даты и свободные места.</p>
+
+              <div class="age-tabs" id="mobileAgeTabs">
+                <button class="age-tab active" data-age="7-9">7–9 лет</button>
+                <button class="age-tab" data-age="10-12">10–12 лет</button>
+                <button class="age-tab" data-age="13-14">13–14 лет</button>
+              </div>
+
+              <div id="mobileShiftOptions"></div>
+
+              <button class="cta-main" id="mobileStartBtn">Забронировать место →</button>
+              <div class="under-cta">○ Ответим в течение 5 минут</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="offerOverlay">
+    <div class="overlay-card dark" id="offerCard"></div>
+  </div>
+
+  <div class="form-drawer hidden" id="formDrawer">
+    <div class="form-panel">
+      <h3>Оформление заявки</h3>
+      <div class="form-summary-box" id="formSummaryBox"></div>
+
+      <div class="form-grid">
+        <input class="input-box" id="parentName" placeholder="Имя родителя" />
+        <input class="input-box" id="parentPhone" placeholder="Телефон" />
+      </div>
+
+      <label class="check-row">
+        <input type="checkbox" id="consentCheck" />
+        <span>Я согласен(на) на обработку персональных данных и понимаю, что после заявки со мной свяжутся для подтверждения брони.</span>
+      </label>
+
+      <button class="cta-main" onclick="submitLead()">Оформить и отправить заявку</button>
+      <div class="muted-note">Без предоплаты. Мы сначала подтверждаем бронь вручную.</div>
+      <button class="secondary-outline" style="margin-top:14px;" onclick="closeForm()">Закрыть</button>
+    </div>
+  </div>
+
+  <div class="summary-bar hidden" id="summaryBar">
+    <div class="summary-inner">
+      <div class="summary-left">
+        <div>
+          <div class="summary-item" id="summaryMain">—</div>
+          <div class="summary-sub" id="summaryMeta">—</div>
+        </div>
+      </div>
+      <div class="summary-right">
+        <div class="summary-price">
+          <strong id="summaryPrice">—</strong>
+          <div class="summary-timer" id="summaryTimer"></div>
+        </div>
+        <button class="cta-main" style="width:auto;padding:14px 18px;" onclick="openForm()">Оформить</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const shifts = [
+      {id:'shift-1',title:'1 смена',dates:'30 мая — 8 июня',price:79000,left:12,occupied:33,badge:'HIT',desc:'Визуальное программирование, первые игры, логика.'},
+      {id:'shift-2',title:'2 смена',dates:'10 июня — 16 июня',price:48000,left:8,occupied:37,badge:'',desc:'Python, веб-проекты и командные мини-спринты.'},
+      {id:'shift-3',title:'3 смена',dates:'16 июня — 23 июня',price:65000,left:5,occupied:40,badge:'',desc:'AI-практика, анализ данных, проектная защита.'},
+      {id:'shift-4',title:'4 смена',dates:'10 июня — 23 июня',price:95000,left:14,occupied:31,badge:'',desc:'Длинная смена: полный цикл обучения и проектной практики.'}
+    ];
+
+    const STORAGE_KEY = 'aidacamp_proto_state_v3';
+
+    let state = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || {
+      age:'7-9',
+      shiftId:null,
+      basePrice:null,
+      offerPrice:null,
+      code:null,
+      expiresAt:null,
+      offerStage:0,
+      view:'desktop',
+      phone:''
+    };
+
+    let timerId = null;
+
+    function persist(){
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function switchView(view){
+      state.view = view;
+      document.getElementById('desktopBtn').classList.toggle('active', view === 'desktop');
+      document.getElementById('mobileBtn').classList.toggle('active', view === 'mobile');
+      document.getElementById('desktopView').classList.toggle('hidden', view !== 'desktop');
+      document.getElementById('mobileView').classList.toggle('hidden', view !== 'mobile');
+      persist();
+    }
+
+    document.getElementById('desktopBtn').addEventListener('click', () => switchView('desktop'));
+    document.getElementById('mobileBtn').addEventListener('click', () => switchView('mobile'));
+
+    function formatPrice(v){
+      return new Intl.NumberFormat('ru-RU').format(v) + ' ₽';
+    }
+
+    function labelAge(v){
+      if(v === '7-9') return '7–9 лет';
+      if(v === '10-12') return '10–12 лет';
+      return '13–14 лет';
+    }
+
+    function generateCode(){
+      return 'AC-' + Math.random().toString(36).slice(2,6).toUpperCase();
+    }
+
+    function bindAgeTabs(rootId){
+      const root = document.getElementById(rootId);
+      root.querySelectorAll('[data-age]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          root.querySelectorAll('[data-age]').forEach(x => x.classList.remove('active'));
+          btn.classList.add('active');
+          state.age = btn.dataset.age;
+          state.shiftId = null;
+          state.basePrice = null;
+          state.offerPrice = null;
+          state.code = null;
+          state.expiresAt = null;
+          state.offerStage = 0;
+          renderAll();
+          persist();
+        });
+      });
+    }
+
+    bindAgeTabs('desktopAgeTabs');
+    bindAgeTabs('mobileAgeTabs');
+
+    function renderShiftOptions(targetId){
+      const box = document.getElementById(targetId);
+      box.innerHTML = shifts.slice(0,2).map(s => `
+        <div class="shift-option ${state.shiftId === s.id ? 'active' : ''}" data-id="${s.id}">
+          <div>
+            <strong>${s.dates}</strong>
+            <small>${s.title}</small>
+          </div>
+          <div class="shift-price-chip">${s.left} мест</div>
+        </div>
+      `).join('');
+
+      box.querySelectorAll('.shift-option').forEach(el => {
+        el.addEventListener('click', () => {
+          selectShift(el.dataset.id);
+        });
+      });
+    }
+
+    function renderShiftCards(){
+      const grid = document.getElementById('shiftCardsGrid');
+      grid.innerHTML = shifts.map(s => `
+        <div class="mini-card">
+          <h4>${s.title}</h4>
+          <p><strong>${s.dates}</strong><br>${s.desc}<br><br>Текущая цена: ${formatPrice(s.price)}<br>Осталось мест: ${s.left}</p>
+        </div>
+      `).join('');
+    }
+
+    function selectShift(id){
+      const shift = shifts.find(s => s.id === id);
+      state.shiftId = id;
+      state.basePrice = shift.price;
+      state.offerPrice = null;
+      state.code = null;
+      state.expiresAt = null;
+      state.offerStage = 0;
+      renderAll();
+      persist();
+      openOfferCheck();
+    }
+
+    function openOfferCheck(){
+      const wrap = document.getElementById('offerOverlay');
+      const card = document.getElementById('offerCard');
+      wrap.classList.remove('hidden');
+
+      card.innerHTML = `
+        <h3>Проверяем условия</h3>
+        <p>Смотрим, можем ли закрепить лучшую цену для этой смены.</p>
+        <div style="height:12px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;margin-bottom:10px;">
+          <div style="width:72%;height:100%;background:linear-gradient(90deg,#ff8a00,#ffb15e);"></div>
+        </div>
+        <div style="height:12px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;margin-bottom:10px;">
+          <div style="width:54%;height:100%;background:linear-gradient(90deg,#ff8a00,#ffb15e);"></div>
+        </div>
+        <div style="height:12px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;">
+          <div style="width:36%;height:100%;background:linear-gradient(90deg,#ff8a00,#ffb15e);"></div>
+        </div>
+      `;
+
+      setTimeout(showOffer, 700);
+    }
+
+    function showOffer(){
+      const card = document.getElementById('offerCard');
+
+      if(state.offerStage === 0){
+        state.offerPrice = Math.round(state.basePrice * 0.96);
+        state.expiresAt = Date.now() + 72 * 60 * 60 * 1000;
+        state.offerStage = 1;
+      } else if(state.offerStage === 1 && state.expiresAt && Date.now() < state.expiresAt){
+        state.offerPrice = Math.round(state.offerPrice * 0.97);
+        state.expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+        state.offerStage = 2;
+      }
+
+      state.code = generateCode();
+      persist();
+
+      card.innerHTML = `
+        <h3>${state.offerStage === 2 ? 'Рады, что вы вернулись' : 'Удалось закрепить цену'}</h3>
+        <p>${state.offerStage === 2 ? 'Мы смогли ещё немного улучшить условия. Эта цена действует 24 часа.' : 'Ваша цена сохранится на ограниченное время, чтобы вы могли спокойно принять решение.'}</p>
+        <div class="big-price">${formatPrice(state.offerPrice)}</div>
+        <div class="summary-timer" id="offerTimer"></div>
+        <div class="offer-code">Код бронирования: ${state.code}</div>
+
+        <div class="overlay-actions">
+          <button class="cta-main" onclick="saveOfferAndClose()">Закрепить по телефону</button>
+          <button class="secondary-outline" onclick="saveOfferAndClose()">Сохранить на этом устройстве</button>
+        </div>
+      `;
+
+      startTimer();
+      renderSummary();
+    }
+
+    function saveOfferAndClose(){
+      document.getElementById('offerOverlay').classList.add('hidden');
+      renderSummary();
+    }
+
+    function startTimer(){
+      if(timerId) clearInterval(timerId);
+
+      timerId = setInterval(() => {
+        if(!state.expiresAt) return;
+
+        const diff = state.expiresAt - Date.now();
+        const offerTimer = document.getElementById('offerTimer');
+        const summaryTimer = document.getElementById('summaryTimer');
+
+        if(diff <= 0){
+          clearInterval(timerId);
+          state.expiresAt = null;
+          persist();
+          if(offerTimer) offerTimer.textContent = '';
+          if(summaryTimer) summaryTimer.textContent = '';
+          return;
+        }
+
+        const h = Math.floor(diff / (1000 * 60 * 60));
+        const m = Math.floor((diff / (1000 * 60)) % 60);
+        const text = `Действует ${h}ч ${m}м`;
+
+        if(offerTimer) offerTimer.textContent = text;
+        if(summaryTimer) summaryTimer.textContent = text;
+      }, 1000);
+    }
+
+    function renderSummary(){
+      const bar = document.getElementById('summaryBar');
+
+      if(!state.shiftId){
+        bar.classList.add('hidden');
+        return;
+      }
+
+      const shift = shifts.find(s => s.id === state.shiftId);
+      const price = state.offerPrice || state.basePrice || shift.price;
+
+      document.getElementById('summaryMain').textContent = `${labelAge(state.age)} · ${shift.title}`;
+      document.getElementById('summaryMeta').textContent = `${shift.dates}${state.code ? ` · Код ${state.code}` : ''}`;
+      document.getElementById('summaryPrice').textContent = formatPrice(price);
+
+      bar.classList.remove('hidden');
+    }
+
+    function openForm(){
+      if(!state.shiftId) return;
+
+      const shift = shifts.find(s => s.id === state.shiftId);
+      const price = state.offerPrice || state.basePrice || shift.price;
+
+      document.getElementById('formSummaryBox').innerHTML = `
+        <strong>Вы выбрали</strong>
+        <div class="form-summary-row">Смена: ${shift.title}</div>
+        <div class="form-summary-row">Даты: ${shift.dates}</div>
+        <div class="form-summary-row">Возраст: ${labelAge(state.age)}</div>
+        <div class="form-summary-row">Цена: ${formatPrice(price)}</div>
+        ${state.code ? `<div class="form-summary-row">Код бронирования: ${state.code}</div>` : ''}
+        <div class="form-summary-row" style="margin-top:8px;color:var(--text);">Без предоплаты. Мы свяжемся с вами и подтвердим бронь.</div>
+      `;
+
+      document.getElementById('parentPhone').value = state.phone || '';
+      document.getElementById('formDrawer').classList.remove('hidden');
+    }
+
+    function closeForm(){
+      document.getElementById('formDrawer').classList.add('hidden');
+    }
+
+    function submitLead(){
+      const name = document.getElementById('parentName').value.trim();
+      const phone = document.getElementById('parentPhone').value.trim();
+      const consent = document.getElementById('consentCheck').checked;
+
+      if(!name || !phone || !consent){
+        alert('Заполните имя, телефон и подтвердите согласие.');
+        return;
+      }
+
+      state.phone = phone;
+      persist();
+
+      alert('Заявка отправлена');
+      closeForm();
+    }
+
+    function scrollToSection(target){
+      const map = {
+        about:'section-about',
+        programs:'section-programs',
+        photos:'section-photos',
+        videos:'section-videos',
+        reviews:'section-reviews',
+        faq:'section-faq',
+        team:'section-team',
+        contacts:'section-contacts'
+      };
+
+      const id = map[target];
+      const el = document.getElementById(id);
+      if(el){
+        el.scrollIntoView({behavior:'smooth', block:'start'});
+      }
+    }
+
+    document.querySelectorAll('#serviceMenu [data-target]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#serviceMenu [data-target]').forEach(x => x.classList.remove('active'));
+        btn.classList.add('active');
+        scrollToSection(btn.dataset.target);
+      });
+    });
+
+    document.getElementById('desktopStartBtn').addEventListener('click', () => {
+      if(!state.shiftId){
+        selectShift(shifts[0].id);
+      } else {
+        openForm();
+      }
+    });
+
+    document.getElementById('mobileStartBtn').addEventListener('click', () => {
+      if(!state.shiftId){
+        selectShift(shifts[0].id);
+      } else {
+        openForm();
+      }
+    });
+
+    renderShiftOptions('desktopShiftOptions');
+    renderShiftOptions('mobileShiftOptions');
+    renderShiftCards();
+    renderSummary();
+    switchView(state.view || 'desktop');
+
+    if(state.expiresAt && Date.now() < state.expiresAt){
+      startTimer();
+    }
+  </script>
+</body>
+</html>
